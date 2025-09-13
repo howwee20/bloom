@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { isSaved, toggleSave } from "@/lib/library";
 import PromptBar from "@/components/PromptBar";
 
+export const dynamic = "force-dynamic";
+
 interface Item {
   videoId: string;
   title: string;
