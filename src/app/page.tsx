@@ -18,11 +18,7 @@ const RESULTS_LIMIT = 8;
 
 function Spinner() {
   return (
-    <svg
-      className="h-5 w-5 animate-spin"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-    >
+    <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" aria-hidden="true">
       <circle
         className="opacity-25"
         cx="12"
@@ -131,84 +127,93 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <main className="flex-1 p-4">
-        {degraded && (
-          <div className="mb-4 rounded border border-yellow-200 bg-yellow-100 p-2 text-center text-sm text-yellow-800">
-            We’re running in low‑quota mode. Playing and saving still work; some
-            stats are hidden.
-          </div>
-        )}
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {items.slice(0, RESULTS_LIMIT).map((it) => (
-            <a
-              key={it.videoId}
-              href={it.youtubeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={[
-                "relative flex flex-col",
-                "bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm",
-                "hover:shadow-md transition",
-              ].join(" ")}
-            >
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  addLater({
-                    videoId: it.videoId,
-                    title: it.title,
-                    channelTitle: it.channelTitle,
-                    thumbnailUrl: it.thumbnailUrl,
-                    youtubeUrl: it.youtubeUrl,
-                  });
-                  // Force a re-render so isLater() reflects immediately
-                  setItems((cur) => [...cur]);
-                }}
-                aria-label={isLater(it.videoId) ? "Saved" : "Save to Watch Later"}
-                className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow
-    ${isLater(it.videoId) ? "bg-slate-700 text-white" : "bg-orange-500 text-white hover:bg-orange-600"}`}
+    <>
+      <main className="min-h-[100svh] bg-white">
+        <div className="mx-auto w-full max-w-[1400px] px-4 pt-4 pb-[88px]">
+          {degraded && (
+            <div className="mb-4 rounded border border-yellow-200 bg-yellow-100 p-2 text-center text-sm text-yellow-800">
+              We’re running in low‑quota mode. Playing and saving still work; some
+              stats are hidden.
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {items.slice(0, RESULTS_LIMIT).map((it) => (
+              <a
+                key={it.videoId}
+                href={it.youtubeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition"
               >
-                {isLater(it.videoId) ? "✓ Saved" : "🔖 Save"}
-              </button>
-              <img
-                src={it.thumbnailUrl}
-                alt={it.title}
-                className="w-full h-auto rounded"
-              />
-              <div className="mt-2 text-sm font-medium">{it.title}</div>
-              <div className="text-xs text-gray-500">{it.channelTitle}</div>
-            </a>
-          ))}
+                <div className="aspect-video overflow-hidden relative">
+                  <img
+                    src={it.thumbnailUrl}
+                    alt={it.title}
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      addLater({
+                        videoId: it.videoId,
+                        title: it.title,
+                        channelTitle: it.channelTitle,
+                        thumbnailUrl: it.thumbnailUrl,
+                        youtubeUrl: it.youtubeUrl,
+                      });
+                      // Force a re-render so isLater() reflects immediately
+                      setItems((cur) => [...cur]);
+                    }}
+                    aria-label={isLater(it.videoId) ? "Saved" : "Save to Watch Later"}
+                    className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow ${
+                      isLater(it.videoId)
+                        ? "bg-slate-700 text-white"
+                        : "bg-orange-500 text-white hover:bg-orange-600"
+                    }`}
+                  >
+                    {isLater(it.videoId) ? "✓ Saved" : "🔖 Save"}
+                  </button>
+                </div>
+                <div className="p-4">
+                  <div className="text-sm font-medium">{it.title}</div>
+                  <div className="text-xs text-gray-500">{it.channelTitle}</div>
+                </div>
+              </a>
+            ))}
+          </div>
         </div>
       </main>
-      <div className="p-4 border-t flex gap-2">
-        <input
-          className="flex-1 border rounded px-3 py-2 text-sm"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Describe what you want to watch..."
-        />
-        <button
-          onClick={handleClick}
-          disabled={loading || !q.trim()}
-          aria-busy={loading ? "true" : "false"}
-          aria-live="polite"
-          className="px-4 py-3 rounded-full bg-orange-500 hover:bg-orange-600 text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          {loading ? (
-            <>
-              <Spinner />
-              <span>Searching…</span>
-            </>
-          ) : (
-            buttonLabel
-          )}
-        </button>
+      <div className="fixed inset-x-0 bottom-0 z-50 pb-[env(safe-area-inset-bottom)]">
+        <div className="mx-auto w-full max-w-[1400px] px-4 py-4 bg-white/80 backdrop-blur border-t">
+          <div className="flex gap-2">
+            <input
+              className="flex-1 border rounded px-3 py-2 text-sm"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Describe what you want to watch..."
+            />
+            <button
+              onClick={handleClick}
+              disabled={loading || !q.trim()}
+              aria-busy={loading ? "true" : "false"}
+              aria-live="polite"
+              className="px-4 py-3 rounded-full bg-orange-500 hover:bg-orange-600 text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Spinner />
+                  <span>Searching…</span>
+                </>
+              ) : (
+                buttonLabel
+              )}
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
