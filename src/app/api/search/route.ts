@@ -1,20 +1,9 @@
 import { ytSearch, ytVideos } from "@/lib/yt";
+import { cacheGet, cacheSet, Result } from "../_cache";
+import { rateLimit } from "../_ratelimit";
 
 export const runtime = "edge";
 
-interface Result {
-  videoId: string;
-  title: string;
-  channelTitle: string;
-  thumbnailUrl: string;
-  youtubeUrl: string;
-  publishedAt: string;
-  durationSeconds: number;
-  viewCount: number;
-}
-
-const cache = new Map<string, { ts: number; data: Result[] }>();
-const TTL = 120_000;
 const RESULTS_LIMIT = 8;
 
 function jitter(id: string, seed: number): number {
@@ -27,6 +16,17 @@ function jitter(id: string, seed: number): number {
 
 export async function POST(req: Request) {
   try {
+    const id =
+      req.headers.get("cf-connecting-ip") ||
+      req.headers.get("x-forwarded-for") ||
+      "";
+    if (rateLimit(id)) {
+      return new Response(JSON.stringify({ rateLimited: true, results: [] }), {
+        headers: { "content-type": "application/json" },
+        status: 429,
+      });
+    }
+
     const body = await req.json();
     const queries: string[] = Array.isArray(body?.queries) ? body.queries : [];
     if (!queries.length) throw new Error("invalid");
@@ -41,9 +41,9 @@ export async function POST(req: Request) {
     const key = JSON.stringify(queries);
     const now = Date.now();
     if (!excludeIds.length && seed === undefined) {
-      const cached = cache.get(key);
-      if (cached && now - cached.ts < TTL) {
-        return new Response(JSON.stringify({ results: cached.data }), {
+      const cached = cacheGet(key);
+      if (cached) {
+        return new Response(JSON.stringify({ results: cached }), {
           headers: { "content-type": "application/json" },
         });
       }
@@ -110,7 +110,7 @@ export async function POST(req: Request) {
     const top = scored.slice(0, RESULTS_LIMIT).map((s) => s.v);
 
     if (!excludeIds.length && seed === undefined) {
-      cache.set(key, { ts: now, data: top });
+      cacheSet(key, top);
     }
 
     return new Response(JSON.stringify({ results: top }), {
