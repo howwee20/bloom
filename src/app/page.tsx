@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { isSaved, toggleSave } from "@/lib/library";
+import PromptBar from "@/components/PromptBar";
 
 interface Item {
   videoId: string;
@@ -38,16 +39,17 @@ function Spinner() {
 }
 
 export default function Home() {
-  const [q, setQ] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [degraded, setDegraded] = useState(false);
   const lastPromptRef = useRef("");
   const seenIdsRef = useRef<Set<string>>(new Set());
   const router = useRouter();
-  const buttonLabel = q === lastPromptRef.current ? "Respin" : "Bloom it";
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get("q") ?? "";
 
-  async function run({ respin }: { respin: boolean }) {
+  async function run(q: string, { respin }: { respin: boolean }) {
+    if (!q) return;
     setLoading(true);
     try {
       const intentBody: any = { prompt: q };
@@ -96,35 +98,36 @@ export default function Home() {
     }
   }
 
-  function handleCommand() {
-    const trimmed = q.trim().toLowerCase();
-    if (trimmed === "saved") {
-      router.push("/saved");
-      return true;
+  useEffect(() => {
+    function onSearch(e: any) {
+      if (loading) return;
+      const q: string = e.detail?.q ?? "";
+      const trimmed = q.trim().toLowerCase();
+      if (!trimmed) return;
+      if (trimmed === "saved") {
+        router.push("/saved");
+        return;
+      }
+      run(q, { respin: false });
     }
-    return false;
-  }
-
-  function handleClick() {
-    if (loading) return;
-    if (handleCommand()) return;
-    run({ respin: q === lastPromptRef.current });
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    // Don’t fire while composing (IME), and don’t double-trigger while loading
-    // Also allow Shift+Enter future multiline if we ever switch to <textarea>
-    if (e.nativeEvent.isComposing || loading) return;
-
-    if (e.key === "Enter" && !e.shiftKey) {
-      if (!q.trim()) return; // avoid empty searches that yield 400/empty results
-      e.preventDefault();
-      if (handleCommand()) return;
-      // "dirty" means q !== lastPromptRef.current
-      const dirty = q.trim() !== lastPromptRef.current.trim();
-      run({ respin: !dirty });
+    function onRespin() {
+      if (loading) return;
+      if (!lastPromptRef.current) return;
+      run(lastPromptRef.current, { respin: true });
     }
-  }
+    window.addEventListener("bloom:search", onSearch as any);
+    window.addEventListener("bloom:respin", onRespin);
+    return () => {
+      window.removeEventListener("bloom:search", onSearch as any);
+      window.removeEventListener("bloom:respin", onRespin);
+    };
+  }, [loading, router]);
+
+  useEffect(() => {
+    if (initialQ) {
+      run(initialQ, { respin: false });
+    }
+  }, [initialQ]);
 
   return (
     <>
@@ -187,35 +190,7 @@ export default function Home() {
           </div>
         </div>
       </main>
-      <div className="fixed inset-x-0 bottom-0 z-50 pb-[env(safe-area-inset-bottom)]">
-        <div className="mx-auto w-full max-w-[1400px] px-4 py-4 bg-white/80 backdrop-blur border-t">
-          <div className="flex gap-2">
-            <input
-              className="flex-1 border rounded px-3 py-2 text-sm"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Describe what you want to watch..."
-            />
-            <button
-              onClick={handleClick}
-              disabled={loading || !q.trim()}
-              aria-busy={loading ? "true" : "false"}
-              aria-live="polite"
-              className="px-4 py-3 rounded-full bg-orange-500 hover:bg-orange-600 text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <Spinner />
-                  <span>Searching…</span>
-                </>
-              ) : (
-                buttonLabel
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
+      <PromptBar initialValue={initialQ} />
     </>
   );
 }
