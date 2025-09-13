@@ -1,11 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-
-type SavedItem = {
-  videoId: string; title: string; channelTitle?: string;
-  youtubeUrl: string; thumbnailUrl: string; savedAt?: number;
-};
+import { loadLibrary, SavedItem } from "@/lib/library";
 
 function buildDeck(list: SavedItem[], need = 8) {
   const out: SavedItem[] = []; if (!list.length) return out;
@@ -20,12 +16,9 @@ function buildDeck(list: SavedItem[], need = 8) {
 export default function SavedPage() {
   const [items, setItems] = useState<SavedItem[]>([]);
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("watchLater") || "[]";
-      const parsed: SavedItem[] = JSON.parse(raw);
-      parsed.sort((a,b) => (b.savedAt ?? 0) - (a.savedAt ?? 0));
-      setItems(parsed);
-    } catch { setItems([]); }
+    const lib = loadLibrary();
+    lib.sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0));
+    setItems(lib);
   }, []);
   const deck = useMemo(() => buildDeck(items, 8), [items]);
 
