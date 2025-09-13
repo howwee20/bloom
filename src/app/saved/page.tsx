@@ -46,6 +46,7 @@ export default function SavedPage() {
   const respin = () => {
     const len = Math.max(items.length, 1);
     setOffset((o) => (o + 8) % len);
+    window.dispatchEvent(new Event("bloom:done"));
   };
 
   return (

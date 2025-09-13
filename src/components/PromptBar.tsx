@@ -28,6 +28,7 @@ export default function PromptBar({
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const taste = useMemo(() => loadLibrary().slice(0, 20).map(s => s.title).filter(Boolean), []);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const q = text.trim();
@@ -49,11 +50,31 @@ export default function PromptBar({
     return () => clearTimeout(t);
   }, [text, taste]);
 
+  // Busy reset on "done" events (from pages)
+  useEffect(() => {
+    function onDone() { stopBusy(); }
+    window.addEventListener("bloom:done", onDone);
+    return () => window.removeEventListener("bloom:done", onDone);
+  }, []);
+
+  // Safety timeout: never get stuck busy (8s cap)
+  const busyTimer = useRef<number | null>(null);
+  function startBusy() {
+    setBusy(true);
+    if (busyTimer.current) window.clearTimeout(busyTimer.current);
+    busyTimer.current = window.setTimeout(() => setBusy(false), 8000);
+  }
+  function stopBusy() {
+    setBusy(false);
+    if (busyTimer.current) { window.clearTimeout(busyTimer.current); busyTimer.current = null; }
+  }
+
   // --- Dynamic label & single action ---
   const inSaved = pathname === "/saved";
   const trimmed = text.trim();
   const isNewPrompt = !inSaved && !!trimmed && trimmed.toLowerCase() !== lastSubmittedRef.current.toLowerCase();
-  const buttonLabel = inSaved ? "Respin" : (isNewPrompt ? "Bloom it" : "Respin");
+  const baseLabel = inSaved ? "Respin" : (isNewPrompt ? "Bloom it" : "Respin");
+  const buttonLabel = busy ? "Searching…" : baseLabel;
 
   function runSearch(value: string) {
     if (onSubmit) return onSubmit(value);
@@ -65,16 +86,21 @@ export default function PromptBar({
   }
 
   function doAction() {
-    if (inSaved) return runRespin();
+    if (busy) return;
+    startBusy();
+    if (inSaved) {
+      // page-level onRespin will fire and then dispatch 'bloom:done'
+      return runRespin();
+    }
     if (isNewPrompt) {
       lastSubmittedRef.current = trimmed;
-      return runSearch(trimmed);
+      return runSearch(trimmed); // page will dispatch 'bloom:done' on completion
     }
     return runRespin();
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") doAction(); // ENTER mirrors the single button
+    if (e.key === "Enter" && !busy) doAction();
   }
 
   return (
@@ -108,10 +134,13 @@ export default function PromptBar({
               onKeyDown={onKeyDown}
               placeholder={placeholder}
               className="flex-1 rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-black/10"
+              disabled={busy}
             />
             <button
               onClick={doAction}
-              className="px-4 py-3 rounded-xl bg-orange-500 text-white text-sm font-medium"
+              disabled={busy}
+              aria-busy={busy ? "true" : "false"}
+              className="px-4 py-3 rounded-xl bg-orange-500 text-white text-sm font-medium disabled:opacity-60"
             >
               {buttonLabel}
             </button>
