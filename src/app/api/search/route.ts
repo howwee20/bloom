@@ -15,7 +15,7 @@ interface Result {
 
 const cache = new Map<string, { ts: number; data: Result[] }>();
 const TTL = 120_000;
-const RESULTS_LIMIT = 30;
+const RESULTS_LIMIT = 8;
 
 function jitter(id: string, seed: number): number {
   let h = seed;
