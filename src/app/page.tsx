@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { addLater, isLater } from "@/lib/later";
 
 interface Item {
@@ -47,6 +48,7 @@ export default function Home() {
   const [degraded, setDegraded] = useState(false);
   const lastPromptRef = useRef("");
   const seenIdsRef = useRef<Set<string>>(new Set());
+  const router = useRouter();
   const buttonLabel = q === lastPromptRef.current ? "Respin" : "Bloom it";
 
   async function run({ respin }: { respin: boolean }) {
@@ -98,8 +100,18 @@ export default function Home() {
     }
   }
 
+  function handleCommand() {
+    const trimmed = q.trim().toLowerCase();
+    if (trimmed === "saved") {
+      router.push("/saved");
+      return true;
+    }
+    return false;
+  }
+
   function handleClick() {
     if (loading) return;
+    if (handleCommand()) return;
     run({ respin: q === lastPromptRef.current });
   }
 
@@ -111,6 +123,7 @@ export default function Home() {
     if (e.key === "Enter" && !e.shiftKey) {
       if (!q.trim()) return; // avoid empty searches that yield 400/empty results
       e.preventDefault();
+      if (handleCommand()) return;
       // "dirty" means q !== lastPromptRef.current
       const dirty = q.trim() !== lastPromptRef.current.trim();
       run({ respin: !dirty });
