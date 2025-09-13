@@ -9,6 +9,8 @@ interface Item {
   channelTitle: string;
   thumbnailUrl: string;
   youtubeUrl: string;
+  durationSeconds?: number;
+  viewCount?: number;
 }
 
 const RESULTS_LIMIT = 8;
@@ -42,6 +44,7 @@ export default function Home() {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
+  const [degraded, setDegraded] = useState(false);
   const lastPromptRef = useRef("");
   const seenIdsRef = useRef<Set<string>>(new Set());
   const buttonLabel = q === lastPromptRef.current ? "Respin" : "Bloom it";
@@ -80,6 +83,12 @@ export default function Home() {
         ? searchData.results
         : [];
       setItems(results);
+      setDegraded(
+        searchData?.degraded === true ||
+          results.some(
+            (r) => r.durationSeconds == null || r.viewCount == null
+          )
+      );
       for (const r of results) seenIdsRef.current.add(r.videoId);
       if (!respin) {
         lastPromptRef.current = q;
@@ -111,6 +120,12 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 p-4">
+        {degraded && (
+          <div className="mb-4 rounded border border-yellow-200 bg-yellow-100 p-2 text-center text-sm text-yellow-800">
+            We’re running in low‑quota mode. Playing and saving still work; some
+            stats are hidden.
+          </div>
+        )}
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {items.slice(0, RESULTS_LIMIT).map((it) => (
             <a
