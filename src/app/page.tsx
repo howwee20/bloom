@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { addLater, isLater } from "@/lib/later";
 
 interface Item {
   videoId: string;
@@ -116,8 +117,32 @@ export default function Home() {
               href={it.youtubeUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-col"
+              className={[
+                "relative flex flex-col",
+                "bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm",
+                "hover:shadow-md transition",
+              ].join(" ")}
             >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  addLater({
+                    videoId: it.videoId,
+                    title: it.title,
+                    channelTitle: it.channelTitle,
+                    thumbnailUrl: it.thumbnailUrl,
+                    youtubeUrl: it.youtubeUrl,
+                  });
+                  // Force a re-render so isLater() reflects immediately
+                  setItems((cur) => [...cur]);
+                }}
+                aria-label={isLater(it.videoId) ? "Saved" : "Save to Watch Later"}
+                className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow
+    ${isLater(it.videoId) ? "bg-slate-700 text-white" : "bg-orange-500 text-white hover:bg-orange-600"}`}
+              >
+                {isLater(it.videoId) ? "✓ Saved" : "🔖 Save"}
+              </button>
               <img
                 src={it.thumbnailUrl}
                 alt={it.title}
