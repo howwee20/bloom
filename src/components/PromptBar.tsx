@@ -30,6 +30,21 @@ export default function PromptBar({
   const taste = useMemo(() => loadLibrary().slice(0, 20).map(s => s.title).filter(Boolean), []);
   const [busy, setBusy] = useState(false);
 
+  // GLOBAL ENTER: trigger the same action as the single button from anywhere
+  useEffect(() => {
+    function onGlobalEnter(e: KeyboardEvent) {
+      // Only plain Enter (no modifiers), ignore auto-repeat, and ignore while busy
+      if (e.key !== "Enter" || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      if (busy) return;
+      // Prevent default browser behavior (e.g., submitting forms)
+      e.preventDefault();
+      // Run the unified action (Bloom it / Respin, or Saved rotate)
+      doAction();
+    }
+    window.addEventListener("keydown", onGlobalEnter, { capture: true });
+    return () => window.removeEventListener("keydown", onGlobalEnter, { capture: true } as any);
+  }, [busy]); // doAction is stable in this component's closure
+
   useEffect(() => {
     const q = text.trim();
     setLoading(true);
@@ -99,8 +114,14 @@ export default function PromptBar({
     return runRespin();
   }
 
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" && !busy) doAction();
+  // Input-specific handler; stop bubbling so global listener doesn't double-run
+  function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Stop bubbling so the global listener doesn't double-run when focused in the input
+    e.stopPropagation();
+    if (e.key === "Enter" && !busy) {
+      e.preventDefault();
+      doAction();
+    }
   }
 
   return (
@@ -131,7 +152,7 @@ export default function PromptBar({
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
-              onKeyDown={onKeyDown}
+              onKeyDown={onInputKeyDown}
               placeholder={placeholder}
               className="flex-1 rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-black/10"
               disabled={busy}
