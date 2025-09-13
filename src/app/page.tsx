@@ -13,50 +13,73 @@ interface Item {
 const RESULTS_LIMIT = 8;
 
 export default function Home() {
-  const [prompt, setPrompt] = useState("");
+  const [q, setQ] = useState("");
   const [items, setItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(false);
   const lastPromptRef = useRef("");
   const seenIdsRef = useRef<Set<string>>(new Set());
-  const buttonLabel = prompt === lastPromptRef.current ? "Respin" : "Bloom it";
+  const buttonLabel = q === lastPromptRef.current ? "Respin" : "Bloom it";
 
-  const handleClick = async () => {
-    const isRespin = prompt === lastPromptRef.current;
-    const intentBody: any = { prompt };
-    if (!isRespin) {
-      seenIdsRef.current = new Set();
+  async function run({ respin }: { respin: boolean }) {
+    setLoading(true);
+    try {
+      const intentBody: any = { prompt: q };
+      if (!respin) {
+        seenIdsRef.current = new Set();
+      }
+
+      const intentRes = await fetch("/api/intent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(intentBody),
+      });
+      const intentData = await intentRes.json();
+      const queries: string[] = Array.isArray(intentData?.queries)
+        ? intentData.queries
+        : [q];
+
+      const searchBody: any = { queries };
+      if (respin) {
+        searchBody.excludeIds = Array.from(seenIdsRef.current);
+        searchBody.seed = Date.now() % 1_000_000;
+      }
+
+      const searchRes = await fetch("/api/search", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(searchBody),
+      });
+      const searchData = await searchRes.json();
+      const results: Item[] = Array.isArray(searchData?.results)
+        ? searchData.results
+        : [];
+      setItems(results);
+      for (const r of results) seenIdsRef.current.add(r.videoId);
+      if (!respin) {
+        lastPromptRef.current = q;
+      }
+    } finally {
+      setLoading(false);
     }
+  }
 
-    const intentRes = await fetch("/api/intent", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(intentBody),
-    });
-    const intentData = await intentRes.json();
-    const queries: string[] = Array.isArray(intentData?.queries)
-      ? intentData.queries
-      : [prompt];
+  function handleClick() {
+    if (loading) return;
+    run({ respin: q === lastPromptRef.current });
+  }
 
-    const searchBody: any = { queries };
-    if (isRespin) {
-      searchBody.excludeIds = Array.from(seenIdsRef.current);
-      searchBody.seed = Date.now() % 1_000_000;
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Don’t fire while composing (IME), and don’t double-trigger while loading
+    // Also allow Shift+Enter future multiline if we ever switch to <textarea>
+    if (e.nativeEvent.isComposing || loading) return;
+
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      // "dirty" means q !== lastPromptRef.current
+      const dirty = q.trim() !== lastPromptRef.current.trim();
+      run({ respin: !dirty });
     }
-
-    const searchRes = await fetch("/api/search", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(searchBody),
-    });
-    const searchData = await searchRes.json();
-    const results: Item[] = Array.isArray(searchData?.results)
-      ? searchData.results
-      : [];
-    setItems(results);
-    for (const r of results) seenIdsRef.current.add(r.videoId);
-    if (!isRespin) {
-      lastPromptRef.current = prompt;
-    }
-  };
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -84,13 +107,15 @@ export default function Home() {
       <div className="p-4 border-t flex gap-2">
         <input
           className="flex-1 border rounded px-3 py-2 text-sm"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="Describe what you want to watch..."
         />
         <button
           onClick={handleClick}
           className="px-4 py-2 rounded bg-orange-500 hover:bg-orange-600 text-white"
+          disabled={loading}
         >
           {buttonLabel}
         </button>
