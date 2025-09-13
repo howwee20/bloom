@@ -12,6 +12,31 @@ interface Item {
 
 const RESULTS_LIMIT = 8;
 
+function Spinner() {
+  return (
+    <svg
+      className="h-5 w-5 animate-spin"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+        fill="none"
+      />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+      />
+    </svg>
+  );
+}
+
 export default function Home() {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Item[]>([]);
@@ -114,10 +139,19 @@ export default function Home() {
         />
         <button
           onClick={handleClick}
-          className="px-4 py-2 rounded bg-orange-500 hover:bg-orange-600 text-white"
-          disabled={loading}
+          disabled={loading || !q.trim()}
+          aria-busy={loading ? "true" : "false"}
+          aria-live="polite"
+          className="px-4 py-3 rounded-full bg-orange-500 hover:bg-orange-600 text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {buttonLabel}
+          {loading ? (
+            <>
+              <Spinner />
+              <span>Searching…</span>
+            </>
+          ) : (
+            buttonLabel
+          )}
         </button>
       </div>
     </div>
