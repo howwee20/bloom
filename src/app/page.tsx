@@ -100,6 +100,7 @@ export default function Home() {
     if (e.nativeEvent.isComposing || loading) return;
 
     if (e.key === "Enter" && !e.shiftKey) {
+      if (!q.trim()) return; // avoid empty searches that yield 400/empty results
       e.preventDefault();
       // "dirty" means q !== lastPromptRef.current
       const dirty = q.trim() !== lastPromptRef.current.trim();
