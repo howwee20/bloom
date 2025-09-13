@@ -1,4 +1,5 @@
-import { ytSearch, ytVideos } from "@/lib/yt";
+import { pseSearch } from "@/lib/pse";
+import { ytVideos } from "@/lib/yt";
 
 export const runtime = "edge";
 
@@ -25,11 +26,56 @@ function jitter(id: string, seed: number): number {
   return ((h >>> 0) % 2000) / 10000 - 0.1;
 }
 
+function ingest(
+  raw: any,
+  infoMap: Map<string, Result>,
+  excludeSet: Set<string>,
+) {
+  if (!raw || !Array.isArray(raw.items)) return;
+  for (const item of raw.items) {
+    const link: string | undefined = item?.link;
+    if (typeof link !== "string") continue;
+    let id = "";
+    try {
+      const u = new URL(link);
+      if (u.hostname.includes("youtube.com") && u.pathname === "/watch") {
+        id = u.searchParams.get("v") || "";
+      }
+    } catch {}
+    if (!id || excludeSet.has(id) || infoMap.has(id)) continue;
+    const pagemap = item.pagemap || {};
+    const title: string = item.title || "";
+    const channelTitle: string =
+      pagemap.person?.[0]?.name || pagemap.videoobject?.[0]?.author || "";
+    const thumbnailUrl: string =
+      pagemap.cse_thumbnail?.[0]?.src ||
+      pagemap.videoobject?.[0]?.thumbnailurl ||
+      pagemap.metatags?.[0]?.["og:image"] ||
+      `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+    const publishedAt: string =
+      pagemap.videoobject?.[0]?.uploaddate ||
+      pagemap.metatags?.[0]?.["og:video:release_date"] ||
+      "";
+    infoMap.set(id, {
+      videoId: id,
+      title,
+      channelTitle,
+      thumbnailUrl,
+      youtubeUrl: `https://www.youtube.com/watch?v=${id}`,
+      publishedAt,
+      durationSeconds: 0,
+      viewCount: 0,
+    });
+    if (infoMap.size >= 20) break;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const queries: string[] = Array.isArray(body?.queries) ? body.queries : [];
-    if (!queries.length) throw new Error("invalid");
+    const q = queries[0];
+    if (!q) throw new Error("invalid");
 
     const excludeIds: string[] = Array.isArray(body?.excludeIds)
       ? body.excludeIds.filter((s: any) => typeof s === "string")
@@ -38,59 +84,40 @@ export async function POST(req: Request) {
       typeof body?.seed === "number" ? body.seed : undefined;
     const excludeSet = new Set(excludeIds);
 
-    const key = JSON.stringify(queries);
+    const key = q;
     const now = Date.now();
     if (!excludeIds.length && seed === undefined) {
       const cached = cache.get(key);
       if (cached && now - cached.ts < TTL) {
-        return new Response(JSON.stringify({ results: cached.data }), {
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ results: cached.data, degraded: false }),
+          { headers: { "content-type": "application/json" } },
+        );
       }
     }
 
-    const searchLists = await Promise.all(queries.map((q) => ytSearch(q, 15)));
     const infoMap = new Map<string, Result>();
-    for (const list of searchLists) {
-      for (const item of list) {
-        if (infoMap.size >= 60) break;
-        if (excludeSet.has(item.videoId)) continue;
-        if (!infoMap.has(item.videoId)) {
-          infoMap.set(item.videoId, {
-            videoId: item.videoId,
-            title: item.title,
-            channelTitle: item.channelTitle,
-            thumbnailUrl: item.thumbnailUrl,
-            youtubeUrl: `https://www.youtube.com/watch?v=${item.videoId}`,
-            publishedAt: item.publishedAt,
-            durationSeconds: 0,
-            viewCount: 0,
-          });
-        }
-      }
-      if (infoMap.size >= 60) break;
+    const first = await pseSearch(q, 10, 1);
+    ingest(first.raw, infoMap, excludeSet);
+    if (infoMap.size < RESULTS_LIMIT) {
+      const second = await pseSearch(q, 10, 11);
+      ingest(second.raw, infoMap, excludeSet);
     }
 
     const ids = Array.from(infoMap.keys());
-    const stats = await ytVideos(ids);
-    for (const s of stats) {
-      const item = infoMap.get(s.videoId);
-      if (item) {
-        item.durationSeconds = s.durationSeconds;
-        item.viewCount = s.viewCount;
-      }
+    if (!ids.length) {
+      return new Response(JSON.stringify({ results: [], degraded: true }), {
+        headers: { "content-type": "application/json" },
+      });
     }
 
     const baseScores = ids.map((id) => {
       const v = infoMap.get(id)!;
       const publishedMs = Date.parse(v.publishedAt);
       const ageDays = isNaN(publishedMs)
-        ? 0
+        ? 3650
         : (now - publishedMs) / 86_400_000;
-      const base =
-        Math.log10(v.viewCount + 1) +
-        Math.exp(-ageDays / 60) * 0.5 +
-        (v.durationSeconds >= 600 ? 0.2 : 0);
+      const base = -ageDays;
       return { v, base };
     });
 
@@ -109,17 +136,36 @@ export async function POST(req: Request) {
     scored.sort((a, b) => b.score - a.score);
     const top = scored.slice(0, RESULTS_LIMIT).map((s) => s.v);
 
-    if (!excludeIds.length && seed === undefined) {
+    let degraded = false;
+    const shouldHydrate = process.env.ENABLE_YT_HYDRATE !== "0";
+    if (shouldHydrate) {
+      const stats = await ytVideos(top.map((v) => v.videoId));
+      if (stats.length === top.length) {
+        const statMap = new Map(stats.map((s) => [s.videoId, s]));
+        for (const v of top) {
+          const s = statMap.get(v.videoId);
+          if (s) {
+            v.durationSeconds = s.durationSeconds;
+            v.viewCount = s.viewCount;
+          }
+        }
+      } else {
+        degraded = true;
+      }
+    } else {
+      degraded = true;
+    }
+
+    if (!excludeIds.length && seed === undefined && !degraded) {
       cache.set(key, { ts: now, data: top });
     }
 
-    return new Response(JSON.stringify({ results: top }), {
+    return new Response(JSON.stringify({ results: top, degraded }), {
       headers: { "content-type": "application/json" },
     });
   } catch {
-    return new Response(JSON.stringify({ results: [] }), {
+    return new Response(JSON.stringify({ results: [], degraded: true }), {
       headers: { "content-type": "application/json" },
     });
   }
 }
-
