@@ -11,6 +11,7 @@ interface Item {
 }
 
 const refinements = ["weirder", "newer", "longer"] as const;
+const RESULTS_LIMIT = 30;
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
@@ -71,8 +72,8 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 p-4">
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
-          {items.map((it) => (
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {items.slice(0, RESULTS_LIMIT).map((it) => (
             <a
               key={it.videoId}
               href={it.youtubeUrl}

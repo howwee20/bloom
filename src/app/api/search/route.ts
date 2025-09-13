@@ -15,6 +15,7 @@ interface Result {
 
 const cache = new Map<string, { ts: number; data: Result[] }>();
 const TTL = 120_000;
+const RESULTS_LIMIT = 30;
 
 function jitter(id: string, seed: number): number {
   let h = seed;
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
     }
 
     scored.sort((a, b) => b.score - a.score);
-    const top = scored.slice(0, 12).map((s) => s.v);
+    const top = scored.slice(0, RESULTS_LIMIT).map((s) => s.v);
 
     if (!excludeIds.length && seed === undefined) {
       cache.set(key, { ts: now, data: top });
