@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isSaved, toggleSave } from "@/lib/library";
 import PromptBar from "@/components/PromptBar";
@@ -139,8 +139,9 @@ export default function Home() {
   }, [initialQ]);
 
   return (
-    <>
-      <main className="min-h-[100svh] bg-white">
+    <Suspense fallback={null}>
+      <>
+        <main className="min-h-[100svh] bg-white">
         <div className="mx-auto w-full max-w-[1400px] px-4 pt-4 pb-[88px]">
           {degraded && (
             <div className="mb-4 rounded border border-yellow-200 bg-yellow-100 p-2 text-center text-sm text-yellow-800">
@@ -198,9 +199,10 @@ export default function Home() {
             })}
           </div>
         </div>
-      </main>
-      <PromptBar initialValue={initialQ} initialSubmitted={initialQ} />
-    </>
+        </main>
+        <PromptBar initialValue={initialQ} initialSubmitted={initialQ} />
+      </>
+    </Suspense>
   );
 }
 
