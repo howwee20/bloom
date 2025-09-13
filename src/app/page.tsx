@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { addLater, isLater } from "@/lib/later";
+import { isSaved, toggleSave } from "@/lib/library";
 
 interface Item {
   videoId: string;
@@ -137,50 +137,53 @@ export default function Home() {
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {items.slice(0, RESULTS_LIMIT).map((it) => (
-              <a
-                key={it.videoId}
-                href={it.youtubeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="relative rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition"
-              >
-                <div className="aspect-video overflow-hidden relative">
-                  <img
-                    src={it.thumbnailUrl}
-                    alt={it.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      addLater({
-                        videoId: it.videoId,
-                        title: it.title,
-                        channelTitle: it.channelTitle,
-                        thumbnailUrl: it.thumbnailUrl,
-                        youtubeUrl: it.youtubeUrl,
-                      });
-                      // Force a re-render so isLater() reflects immediately
-                      setItems((cur) => [...cur]);
-                    }}
-                    aria-label={isLater(it.videoId) ? "Saved" : "Save to Watch Later"}
-                    className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow ${
-                      isLater(it.videoId)
-                        ? "bg-slate-700 text-white"
-                        : "bg-orange-500 text-white hover:bg-orange-600"
-                    }`}
-                  >
-                    {isLater(it.videoId) ? "✓ Saved" : "🔖 Save"}
-                  </button>
-                </div>
-                <div className="p-4">
-                  <div className="text-sm font-medium">{it.title}</div>
-                  <div className="text-xs text-gray-500">{it.channelTitle}</div>
-                </div>
-              </a>
-            ))}
+            {items.slice(0, RESULTS_LIMIT).map((it) => {
+              const savedNow = isSaved(it.videoId);
+              return (
+                <a
+                  key={it.videoId}
+                  href={it.youtubeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="relative rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition"
+                >
+                  <div className="aspect-video overflow-hidden relative">
+                    <img
+                      src={it.thumbnailUrl}
+                      alt={it.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        toggleSave({
+                          videoId: it.videoId,
+                          title: it.title,
+                          channelTitle: it.channelTitle,
+                          youtubeUrl: it.youtubeUrl,
+                          thumbnailUrl: it.thumbnailUrl,
+                        });
+                        // Force a re-render so isSaved() reflects immediately
+                        setItems((cur) => [...cur]);
+                      }}
+                      aria-label={savedNow ? "Saved" : "Save to Watch Later"}
+                      className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow ${
+                        savedNow
+                          ? "bg-slate-700 text-white"
+                          : "bg-orange-500 text-white hover:bg-orange-600"
+                      }`}
+                    >
+                      {savedNow ? "✓ Saved" : "Save"}
+                    </button>
+                  </div>
+                  <div className="p-4">
+                    <div className="text-sm font-medium">{it.title}</div>
+                    <div className="text-xs text-gray-500">{it.channelTitle}</div>
+                  </div>
+                </a>
+              );
+            })}
           </div>
         </div>
       </main>
