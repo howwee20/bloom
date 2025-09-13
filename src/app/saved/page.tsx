@@ -1,12 +1,12 @@
 "use client";
+
+export const dynamic = "force-dynamic";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import PromptBar from "@/components/PromptBar";
 import { loadLibrary, removeVideo, SavedItem } from "@/lib/library";
-
-export const dynamic = "force-dynamic";
-
 function buildDeckFromOffset(list: SavedItem[], offset: number, need = 8) {
   const out: SavedItem[] = [];
   if (!list.length) return out;
