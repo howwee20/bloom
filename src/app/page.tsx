@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import type { KeyboardEvent } from "react";
 
 interface Item {
   videoId: string;
@@ -10,64 +11,69 @@ interface Item {
   youtubeUrl: string;
 }
 
-const refinements = ["weirder", "newer", "longer"] as const;
-const RESULTS_LIMIT = 30;
+const RESULTS_LIMIT = 20;
 
 export default function Home() {
-  const [prompt, setPrompt] = useState("");
+  const [q, setQ] = useState("");
   const [items, setItems] = useState<Item[]>([]);
-  const lastPromptRef = useRef("");
-  const seenIdsRef = useRef<Set<string>>(new Set());
-  const refineIndexRef = useRef(0);
+  const [, setLoading] = useState(false);
+  const [, setErr] = useState("");
+  const lastPromptRef = useRef<string>("");
+  const seenRef = useRef<Set<string>>(new Set());
 
-  const buttonLabel =
-    prompt === lastPromptRef.current ? "Respin" : "Bloom it";
+  const dirty = q.trim() !== lastPromptRef.current.trim();
+  const buttonLabel = dirty ? "Bloom it" : "Respin";
 
-  const handleClick = async () => {
-    const isRespin = prompt === lastPromptRef.current;
-    const intentBody: any = { prompt };
-    if (isRespin) {
-      const refine = refinements[
-        refineIndexRef.current % refinements.length
-      ];
-      intentBody.refine = refine;
-      refineIndexRef.current = (refineIndexRef.current + 1) % refinements.length;
-    } else {
-      seenIdsRef.current = new Set();
-      refineIndexRef.current = 0;
+  async function run({ respin }: { respin: boolean }) {
+    setLoading(true);
+    setErr("");
+    try {
+      // 1) intent (no refine)
+      const intent = await fetch("/api/intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: q }),
+      }).then((r) => r.json());
+
+      // 2) search (pass fresh/exclude/seed for respin)
+      const body: any = {
+        queries: intent.queries,
+      };
+      if (respin) {
+        body.fresh = true;
+        body.excludeIds = Array.from(seenRef.current);
+        body.seed = Date.now() % 1_000_000;
+      } else {
+        // first run for a new prompt: reset seen set
+        seenRef.current = new Set();
+      }
+
+      const data = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then((r) => r.json());
+
+      const results = Array.isArray(data?.results) ? data.results : [];
+      setItems(results);
+      results.forEach((v: any) => seenRef.current.add(v.videoId));
+
+      // commit prompt after any successful run
+      lastPromptRef.current = q;
+    } catch (e: any) {
+      setErr(e.message || "Search failed");
+    } finally {
+      setLoading(false);
     }
+  }
 
-    const intentRes = await fetch("/api/intent", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(intentBody),
-    });
-    const intentData = await intentRes.json();
-    const queries: string[] = Array.isArray(intentData?.queries)
-      ? intentData.queries
-      : [prompt];
+  function onClick() {
+    run({ respin: !dirty });
+  }
 
-    const searchBody: any = { queries };
-    if (isRespin) {
-      searchBody.excludeIds = Array.from(seenIdsRef.current);
-      searchBody.seed = Date.now();
-    }
-
-    const searchRes = await fetch("/api/search", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(searchBody),
-    });
-    const searchData = await searchRes.json();
-    const results: Item[] = Array.isArray(searchData?.results)
-      ? searchData.results
-      : [];
-    setItems(results);
-    for (const r of results) seenIdsRef.current.add(r.videoId);
-    if (!isRespin) {
-      lastPromptRef.current = prompt;
-    }
-  };
+  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") run({ respin: !dirty });
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -95,12 +101,13 @@ export default function Home() {
       <div className="p-4 border-t flex gap-2">
         <input
           className="flex-1 border rounded px-3 py-2 text-sm"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={onKeyDown}
           placeholder="Describe what you want to watch..."
         />
         <button
-          onClick={handleClick}
+          onClick={onClick}
           className="px-4 py-2 rounded bg-orange-500 hover:bg-orange-600 text-white"
         >
           {buttonLabel}
