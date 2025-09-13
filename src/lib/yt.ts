@@ -45,14 +45,30 @@ interface ChannelsResponse {
   items?: ChannelItem[];
 }
 
-async function safeFetch(url: string, init?: RequestInit): Promise<Response | null> {
+async function safeFetch(
+  url: string,
+  init?: RequestInit
+): Promise<Response | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
     const res = await fetch(url, { ...init, signal: controller.signal });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Minimal diagnostics: surface reason in logs
+      try {
+        const text = await res.text();
+        console.error("YouTube API error:", res.status, text);
+      } catch {
+        console.error("YouTube API error:", res.status, "(no body)");
+      }
+      return null;
+    }
     return res;
-  } catch {
+  } catch (err) {
+    console.error(
+      "YouTube API network error:",
+      (err as Error)?.message || err
+    );
     return null;
   } finally {
     clearTimeout(timeout);
