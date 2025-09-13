@@ -1,103 +1,111 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useRef } from "react";
+
+interface Item {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string;
+  youtubeUrl: string;
+}
+
+const refinements = ["weirder", "newer", "longer"] as const;
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [prompt, setPrompt] = useState("");
+  const [items, setItems] = useState<Item[]>([]);
+  const lastPromptRef = useRef("");
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const refineIndexRef = useRef(0);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const buttonLabel =
+    prompt === lastPromptRef.current ? "Respin" : "Bloom it";
+
+  const handleClick = async () => {
+    const isRespin = prompt === lastPromptRef.current;
+    const intentBody: any = { prompt };
+    if (isRespin) {
+      const refine = refinements[
+        refineIndexRef.current % refinements.length
+      ];
+      intentBody.refine = refine;
+      refineIndexRef.current = (refineIndexRef.current + 1) % refinements.length;
+    } else {
+      seenIdsRef.current = new Set();
+      refineIndexRef.current = 0;
+    }
+
+    const intentRes = await fetch("/api/intent", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(intentBody),
+    });
+    const intentData = await intentRes.json();
+    const queries: string[] = Array.isArray(intentData?.queries)
+      ? intentData.queries
+      : [prompt];
+
+    const searchBody: any = { queries };
+    if (isRespin) {
+      searchBody.excludeIds = Array.from(seenIdsRef.current);
+      searchBody.seed = Date.now();
+    }
+
+    const searchRes = await fetch("/api/search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(searchBody),
+    });
+    const searchData = await searchRes.json();
+    const results: Item[] = Array.isArray(searchData?.results)
+      ? searchData.results
+      : [];
+    setItems(results);
+    for (const r of results) seenIdsRef.current.add(r.videoId);
+    if (!isRespin) {
+      lastPromptRef.current = prompt;
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <main className="flex-1 p-4">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
+          {items.map((it) => (
+            <a
+              key={it.videoId}
+              href={it.youtubeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col"
+            >
+              <img
+                src={it.thumbnailUrl}
+                alt={it.title}
+                className="w-full h-auto rounded"
+              />
+              <div className="mt-2 text-sm font-medium">{it.title}</div>
+              <div className="text-xs text-gray-500">{it.channelTitle}</div>
+            </a>
+          ))}
         </div>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+      <div className="p-4 border-t flex gap-2">
+        <input
+          className="flex-1 border rounded px-3 py-2 text-sm"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Describe what you want to watch..."
+        />
+        <button
+          onClick={handleClick}
+          className="px-4 py-2 rounded bg-orange-500 hover:bg-orange-600 text-white"
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          {buttonLabel}
+        </button>
+      </div>
     </div>
   );
 }
+

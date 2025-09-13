@@ -16,19 +16,36 @@ interface Result {
 const cache = new Map<string, { ts: number; data: Result[] }>();
 const TTL = 120_000;
 
+function jitter(id: string, seed: number): number {
+  let h = seed;
+  for (let i = 0; i < id.length; i++) {
+    h = Math.imul(31, h) + id.charCodeAt(i);
+  }
+  return ((h >>> 0) % 2000) / 10000 - 0.1;
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const queries: string[] = Array.isArray(body?.queries) ? body.queries : [];
     if (!queries.length) throw new Error("invalid");
 
+    const excludeIds: string[] = Array.isArray(body?.excludeIds)
+      ? body.excludeIds.filter((s: any) => typeof s === "string")
+      : [];
+    const seed: number | undefined =
+      typeof body?.seed === "number" ? body.seed : undefined;
+    const excludeSet = new Set(excludeIds);
+
     const key = JSON.stringify(queries);
     const now = Date.now();
-    const cached = cache.get(key);
-    if (cached && now - cached.ts < TTL) {
-      return new Response(JSON.stringify({ results: cached.data }), {
-        headers: { "content-type": "application/json" },
-      });
+    if (!excludeIds.length && seed === undefined) {
+      const cached = cache.get(key);
+      if (cached && now - cached.ts < TTL) {
+        return new Response(JSON.stringify({ results: cached.data }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
     }
 
     const searchLists = await Promise.all(queries.map((q) => ytSearch(q, 15)));
@@ -36,6 +53,7 @@ export async function POST(req: Request) {
     for (const list of searchLists) {
       for (const item of list) {
         if (infoMap.size >= 60) break;
+        if (excludeSet.has(item.videoId)) continue;
         if (!infoMap.has(item.videoId)) {
           infoMap.set(item.videoId, {
             videoId: item.videoId,
@@ -81,7 +99,8 @@ export async function POST(req: Request) {
     const scored: { v: Result; score: number }[] = [];
     for (const { v, base } of baseScores) {
       const count = channelCounts.get(v.channelTitle) ?? 0;
-      const score = base - 0.2 * count;
+      const jitterVal = seed === undefined ? 0 : jitter(v.videoId, seed);
+      const score = base - 0.2 * count + jitterVal;
       channelCounts.set(v.channelTitle, count + 1);
       scored.push({ v, score });
     }
@@ -89,7 +108,9 @@ export async function POST(req: Request) {
     scored.sort((a, b) => b.score - a.score);
     const top = scored.slice(0, 12).map((s) => s.v);
 
-    cache.set(key, { ts: now, data: top });
+    if (!excludeIds.length && seed === undefined) {
+      cache.set(key, { ts: now, data: top });
+    }
 
     return new Response(JSON.stringify({ results: top }), {
       headers: { "content-type": "application/json" },
