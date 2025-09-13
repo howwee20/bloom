@@ -10,31 +10,20 @@ interface Item {
   youtubeUrl: string;
 }
 
-const refinements = ["weirder", "newer", "longer"] as const;
-const RESULTS_LIMIT = 30;
+const RESULTS_LIMIT = 8;
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const lastPromptRef = useRef("");
   const seenIdsRef = useRef<Set<string>>(new Set());
-  const refineIndexRef = useRef(0);
-
-  const buttonLabel =
-    prompt === lastPromptRef.current ? "Respin" : "Bloom it";
+  const buttonLabel = prompt === lastPromptRef.current ? "Respin" : "Bloom it";
 
   const handleClick = async () => {
     const isRespin = prompt === lastPromptRef.current;
     const intentBody: any = { prompt };
-    if (isRespin) {
-      const refine = refinements[
-        refineIndexRef.current % refinements.length
-      ];
-      intentBody.refine = refine;
-      refineIndexRef.current = (refineIndexRef.current + 1) % refinements.length;
-    } else {
+    if (!isRespin) {
       seenIdsRef.current = new Set();
-      refineIndexRef.current = 0;
     }
 
     const intentRes = await fetch("/api/intent", {
@@ -50,7 +39,7 @@ export default function Home() {
     const searchBody: any = { queries };
     if (isRespin) {
       searchBody.excludeIds = Array.from(seenIdsRef.current);
-      searchBody.seed = Date.now();
+      searchBody.seed = Date.now() % 1_000_000;
     }
 
     const searchRes = await fetch("/api/search", {
