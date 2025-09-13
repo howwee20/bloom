@@ -48,11 +48,6 @@ export default function SavedPage() {
     setOffset((o) => (o + 8) % len);
   };
 
-  const onSubmit = (q: string) => {
-    // typing in saved still lets user search → go to home and run search
-    router.push("/?q=" + encodeURIComponent(q));
-  };
-
   return (
     <main className="min-h-[100svh] bg-white">
       <div className="mx-auto w-full max-w-[1400px] px-4 pt-4 pb-[88px]">
@@ -111,7 +106,11 @@ export default function SavedPage() {
       </div>
 
       {/* Shared bottom prompt bar — here it paginates Saved deck and can also jump to search */}
-      <PromptBar onRespin={respin} onSubmit={onSubmit} placeholder="Type to search • Respin rotates your saved" />
+      <PromptBar
+        onRespin={respin}
+        onSubmit={(q) => router.push("/?q=" + encodeURIComponent(q))}
+        placeholder="Type to search • Respin rotates your saved"
+      />
     </main>
   );
 }

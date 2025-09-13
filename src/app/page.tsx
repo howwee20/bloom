@@ -190,7 +190,7 @@ export default function Home() {
           </div>
         </div>
       </main>
-      <PromptBar initialValue={initialQ} />
+      <PromptBar initialValue={initialQ} initialSubmitted={initialQ} />
     </>
   );
 }
