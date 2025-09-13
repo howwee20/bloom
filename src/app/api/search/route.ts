@@ -1,5 +1,6 @@
 import { pseSearch } from "@/lib/pse";
 import { ytVideos } from "@/lib/yt";
+import { rateLimited, rateHeaders } from "../_ratelimit";
 
 export const runtime = "edge";
 
@@ -71,6 +72,15 @@ function ingest(
 }
 
 export async function POST(req: Request) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  if (rateLimited(ip)) {
+    return new Response(JSON.stringify({ results: [], rateLimited: true }), {
+      status: 429,
+      headers: { "content-type": "application/json", ...rateHeaders(ip) },
+    });
+  }
+
   try {
     const body = await req.json();
     const queries: string[] = Array.isArray(body?.queries) ? body.queries : [];
@@ -91,7 +101,7 @@ export async function POST(req: Request) {
       if (cached && now - cached.ts < TTL) {
         return new Response(
           JSON.stringify({ results: cached.data, degraded: false }),
-          { headers: { "content-type": "application/json" } },
+          { headers: { "content-type": "application/json", ...rateHeaders(ip) } },
         );
       }
     }
@@ -107,7 +117,7 @@ export async function POST(req: Request) {
     const ids = Array.from(infoMap.keys());
     if (!ids.length) {
       return new Response(JSON.stringify({ results: [], degraded: true }), {
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...rateHeaders(ip) },
       });
     }
 
@@ -161,11 +171,12 @@ export async function POST(req: Request) {
     }
 
     return new Response(JSON.stringify({ results: top, degraded }), {
-      headers: { "content-type": "application/json" },
+      status: 200,
+      headers: { "content-type": "application/json", ...rateHeaders(ip) },
     });
   } catch {
     return new Response(JSON.stringify({ results: [], degraded: true }), {
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...rateHeaders(ip) },
     });
   }
 }
