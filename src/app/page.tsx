@@ -99,27 +99,35 @@ export default function Home() {
   }
 
   useEffect(() => {
-    function onSearch(e: any) {
-      if (loading) return;
-      const q: string = e.detail?.q ?? "";
-      const trimmed = q.trim().toLowerCase();
-      if (!trimmed) return;
-      if (trimmed === "saved") {
-        router.push("/saved");
-        return;
+    async function onSearch(e: any) {
+      try {
+        if (loading) return;
+        const q: string = e.detail?.q ?? "";
+        const trimmed = q.trim().toLowerCase();
+        if (!trimmed) return;
+        if (trimmed === "saved") {
+          router.push("/saved");
+          return;
+        }
+        await run(q, { respin: false });
+      } finally {
+        window.dispatchEvent(new Event("bloom:done"));
       }
-      run(q, { respin: false });
     }
-    function onRespin() {
-      if (loading) return;
-      if (!lastPromptRef.current) return;
-      run(lastPromptRef.current, { respin: true });
+    async function onRespin() {
+      try {
+        if (loading) return;
+        if (!lastPromptRef.current) return;
+        await run(lastPromptRef.current, { respin: true });
+      } finally {
+        window.dispatchEvent(new Event("bloom:done"));
+      }
     }
     window.addEventListener("bloom:search", onSearch as any);
-    window.addEventListener("bloom:respin", onRespin);
+    window.addEventListener("bloom:respin", onRespin as any);
     return () => {
       window.removeEventListener("bloom:search", onSearch as any);
-      window.removeEventListener("bloom:respin", onRespin);
+      window.removeEventListener("bloom:respin", onRespin as any);
     };
   }, [loading, router]);
 
