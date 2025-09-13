@@ -1,3 +1,5 @@
+import { logCounter } from "@/lib/counters";
+
 export interface VideoResult {
   videoId: string;
   title: string;
@@ -48,28 +50,29 @@ interface ChannelsResponse {
 async function safeFetch(
   url: string,
   init?: RequestInit
-): Promise<Response | null> {
+): Promise<{ res: Response | null; errorText?: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
     const res = await fetch(url, { ...init, signal: controller.signal });
     if (!res.ok) {
+      let text: string | undefined;
       // Minimal diagnostics: surface reason in logs
       try {
-        const text = await res.text();
+        text = await res.text();
         console.error("YouTube API error:", res.status, text);
       } catch {
         console.error("YouTube API error:", res.status, "(no body)");
       }
-      return null;
+      return { res: null, errorText: text };
     }
-    return res;
+    return { res, errorText: undefined };
   } catch (err) {
     console.error(
       "YouTube API network error:",
       (err as Error)?.message || err
     );
-    return null;
+    return { res: null, errorText: (err as Error)?.message || String(err) };
   } finally {
     clearTimeout(timeout);
   }
@@ -89,7 +92,7 @@ export async function ytSearch(q: string, max = 15): Promise<VideoResult[]> {
       key,
     }).toString();
 
-    const res = await safeFetch(url.toString());
+    const { res } = await safeFetch(url.toString());
     if (!res) return [];
     let data: SearchResponse;
     try {
@@ -139,8 +142,14 @@ export async function ytVideos(ids: string[]): Promise<VideoStats[]> {
       id: ids.slice(0, 50).join(","),
       key,
     }).toString();
-    const res = await safeFetch(url.toString());
-    if (!res) return [];
+    logCounter("yt_hydrate_requests");
+    const { res, errorText } = await safeFetch(url.toString());
+    if (!res) {
+      if (errorText && errorText.includes("quotaExceeded")) {
+        logCounter("yt_hydrate_quota_exceeded");
+      }
+      return [];
+    }
     let data: VideosResponse;
     try {
       data = (await res.json()) as VideosResponse;
@@ -204,7 +213,7 @@ export async function resolveChannel(
     const url =
       "https://www.googleapis.com/youtube/v3/channels?" +
       new URLSearchParams(params).toString();
-    const res = await safeFetch(url);
+    const { res } = await safeFetch(url);
     if (!res) return null;
     let data: ChannelsResponse;
     try {
@@ -227,7 +236,7 @@ export async function fetchChannelFeed(
     const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(
       channelId
     )}`;
-    const rssRes = await safeFetch(rssUrl);
+    const { res: rssRes } = await safeFetch(rssUrl);
     if (rssRes) {
       try {
         const xml = await rssRes.text();
@@ -269,7 +278,7 @@ export async function fetchChannelFeed(
       maxResults: "15",
       key,
     }).toString();
-    const res = await safeFetch(url.toString());
+    const { res } = await safeFetch(url.toString());
     if (!res) return [];
     let data: SearchResponse;
     try {

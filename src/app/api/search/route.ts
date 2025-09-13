@@ -1,4 +1,5 @@
 import { ytSearch, ytVideos } from "@/lib/yt";
+import { logCounter } from "@/lib/counters";
 
 export const runtime = "edge";
 
@@ -30,6 +31,8 @@ export async function POST(req: Request) {
     const body = await req.json();
     const queries: string[] = Array.isArray(body?.queries) ? body.queries : [];
     if (!queries.length) throw new Error("invalid");
+
+    logCounter("pse_requests");
 
     const excludeIds: string[] = Array.isArray(body?.excludeIds)
       ? body.excludeIds.filter((s: any) => typeof s === "string")

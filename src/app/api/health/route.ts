@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getRollingCounts } from "@/lib/counters";
 
 export const runtime = "edge";
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   const OPENAI = !!process.env.OPENAI_API_KEY;
   const YT = process.env.YOUTUBE_API_KEY || "";
   const ytPresent = !!YT;
@@ -32,6 +33,18 @@ export async function GET(_req: NextRequest) {
     }
   }
 
+  const adminKey = process.env.ADMIN_KEY;
+  let counters: any = null;
+  if (adminKey) {
+    const provided =
+      req.headers.get("x-admin-key") ||
+      req.nextUrl.searchParams.get("key") ||
+      "";
+    if (provided === adminKey) {
+      counters = getRollingCounts();
+    }
+  }
+
   return NextResponse.json({
     env: {
       OPENAI_API_KEY_present: OPENAI,
@@ -40,6 +53,7 @@ export async function GET(_req: NextRequest) {
     youtubeProbe: ytPresent
       ? { status: ytStatus, body: ytBody }
       : { status: null, body: "No YOUTUBE_API_KEY" },
+    ...(counters ? { counters } : {}),
   });
 }
 
