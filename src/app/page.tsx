@@ -6,6 +6,8 @@ import { useState, useRef, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isSaved, toggleSave } from "@/lib/library";
 import PromptBar from "@/components/PromptBar";
+import type { YTComment } from "@/lib/youtube/types";
+import { extractYouTubeId } from "@/lib/youtube/utils";
 interface Item {
   videoId: string;
   title: string;
@@ -17,6 +19,8 @@ interface Item {
 }
 
 const RESULTS_LIMIT = 8;
+const ENABLE_YT_COMMENTS =
+  process.env.NEXT_PUBLIC_ENABLE_YT_COMMENTS !== "0";
 
 function Spinner() {
   return (
@@ -43,6 +47,9 @@ export default function Home() {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [degraded, setDegraded] = useState(false);
+  const [ytComments, setYtComments] = useState<
+    Record<string, YTComment[]>
+  >({});
   const lastPromptRef = useRef("");
   const seenIdsRef = useRef<Set<string>>(new Set());
   const router = useRouter();
@@ -138,6 +145,22 @@ export default function Home() {
     }
   }, [initialQ]);
 
+  useEffect(() => {
+    if (!ENABLE_YT_COMMENTS) return;
+    const ids = items
+      .map((it) => extractYouTubeId(it.youtubeUrl))
+      .filter((id): id is string => !!id);
+    if (ids.length === 0) return;
+    const params = new URLSearchParams({
+      ids: Array.from(new Set(ids)).slice(0, 12).join(","),
+    });
+    setYtComments({});
+    fetch(`/api/yt/comments?${params.toString()}`)
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((map) => setYtComments(map))
+      .catch(() => {});
+  }, [items]);
+
   return (
     <Suspense fallback={null}>
       <>
@@ -152,6 +175,8 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {items.slice(0, RESULTS_LIMIT).map((it) => {
               const savedNow = isSaved(it.videoId);
+              const ytId = extractYouTubeId(it.youtubeUrl);
+              const comments = ytId ? ytComments[ytId] : undefined;
               return (
                 <a
                   key={it.videoId}
@@ -190,9 +215,39 @@ export default function Home() {
                       {savedNow ? "✓ Saved" : "Save"}
                     </button>
                   </div>
-                  <div className="p-4">
-                    <div className="text-sm font-medium">{it.title}</div>
-                    <div className="text-xs text-gray-500">{it.channelTitle}</div>
+                  <div className="p-3">
+                    <div className="text-sm font-medium leading-snug line-clamp-2">
+                      {it.title}
+                    </div>
+                    <div className="mt-1 text-xs text-black/80">
+                      {it.channelTitle}
+                    </div>
+                    {ENABLE_YT_COMMENTS && ytId
+                      ? comments && comments.length > 0
+                        ? (
+                            <div className="mt-2 space-y-1">
+                              {comments.slice(0, 2).map((c) => (
+                                <div
+                                  key={c.id}
+                                  className="text-xs text-black/80"
+                                >
+                                  <span className="line-clamp-1 italic">
+                                    “{c.text}”
+                                  </span>
+                                  <span className="ml-1 text-black/60">
+                                    — {c.author}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        : (
+                            <div className="mt-2 space-y-1">
+                              <div className="h-3 w-10/12 rounded bg-black/5" />
+                              <div className="h-3 w-8/12 rounded bg-black/5" />
+                            </div>
+                          )
+                      : null}
                   </div>
                 </a>
               );
