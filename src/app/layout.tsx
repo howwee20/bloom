@@ -29,7 +29,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <header className="p-4 text-xl font-semibold flex items-center justify-between">
+        <header className="p-4 text-xl font-semibold flex items-center justify-between bg-white">
           <a href="/" className="text-orange-500">Bloom</a>
           <Link
             href="/saved"
