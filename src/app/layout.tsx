@@ -27,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased text-black`}
       >
         <header className="p-4 text-xl font-semibold flex items-center justify-between bg-white">
           <a href="/" className="text-orange-500">Bloom</a>
