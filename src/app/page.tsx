@@ -18,7 +18,7 @@ interface Item {
   viewCount?: number;
 }
 
-const RESULTS_LIMIT = 8;
+const RESULTS_LIMIT = 4;
 const ENABLE_YT_COMMENTS =
   process.env.NEXT_PUBLIC_ENABLE_YT_COMMENTS !== "0";
 
@@ -151,13 +151,19 @@ export default function Home() {
       .map((it) => extractYouTubeId(it.youtubeUrl))
       .filter((id): id is string => !!id);
     if (ids.length === 0) return;
-    const params = new URLSearchParams({
-      ids: Array.from(new Set(ids)).slice(0, 12).join(","),
-    });
+    const unique = Array.from(new Set(ids));
+    if (unique.length === 0) return;
+    const params = new URLSearchParams();
+    params.set("ids", unique.slice(0, 12).join(","));
+    params.set("max", "10");
     setYtComments({});
     fetch(`/api/yt/comments?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : {}))
-      .then((map) => setYtComments(map))
+      .then((map) => {
+        if (map && typeof map === "object" && !Array.isArray(map)) {
+          setYtComments(map as Record<string, YTComment[]>);
+        }
+      })
       .catch(() => {});
   }, [items]);
 
@@ -222,31 +228,19 @@ export default function Home() {
                     <div className="mt-1 text-xs text-black/80">
                       {it.channelTitle}
                     </div>
-                    {ENABLE_YT_COMMENTS && ytId
-                      ? comments && comments.length > 0
-                        ? (
-                            <div className="mt-2 space-y-1">
-                              {comments.slice(0, 2).map((c) => (
-                                <div
-                                  key={c.id}
-                                  className="text-xs text-black/80"
-                                >
-                                  <span className="line-clamp-1 italic">
-                                    “{c.text}”
-                                  </span>
-                                  <span className="ml-1 text-black/60">
-                                    — {c.author}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )
-                        : (
-                            <div className="mt-2 space-y-1">
-                              <div className="h-3 w-10/12 rounded bg-black/5" />
-                              <div className="h-3 w-8/12 rounded bg-black/5" />
-                            </div>
-                          )
+                    {ENABLE_YT_COMMENTS && ytId && comments && comments.length > 0
+                      ? (
+                          <div className="mt-2 space-y-1">
+                            {comments.slice(0, 10).map((c) => (
+                              <div
+                                key={c.id}
+                                className="text-xs text-black/80 line-clamp-1"
+                              >
+                                <span className="italic">“{c.text}”</span> — {c.author}
+                              </div>
+                            ))}
+                          </div>
+                        )
                       : null}
                   </div>
                 </a>

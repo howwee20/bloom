@@ -10,20 +10,31 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const idsParam = url.searchParams.get("ids") || "";
-  // Accept up to 12 IDs per call (grid-sized chunk)
-  const ids = idsParam
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, 12);
+  const maxParam = url.searchParams.get("max") || "";
+  const parsedMax = Number.parseInt(maxParam, 10);
+  const max = Number.isFinite(parsedMax)
+    ? Math.min(10, Math.max(1, parsedMax))
+    : 8;
+
+  const ids = Array.from(
+    new Set(
+      idsParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, 12);
 
   if (!ids.length) {
     return NextResponse.json({}, { headers: { "cache-control": "no-store" } });
   }
 
-  const map = await fetchTopCommentsBatch(ids, 3);
-  // Allow CDN caching (responses vary per ids)
-  return NextResponse.json(map, {
-    headers: { "cache-control": "s-maxage=86400, stale-while-revalidate=43200" },
-  });
+  try {
+    const map = await fetchTopCommentsBatch(ids, { max });
+    return NextResponse.json(map, {
+      headers: { "cache-control": "s-maxage=86400, stale-while-revalidate=43200" },
+    });
+  } catch {
+    return NextResponse.json({}, { headers: { "cache-control": "no-store" } });
+  }
 }
