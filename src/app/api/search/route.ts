@@ -1,3 +1,4 @@
+import { getCurrentEvents } from "@/lib/news/currentEvents";
 import { pseSearch } from "@/lib/pse";
 import { ytVideos } from "@/lib/yt";
 import { rateLimited, rateHeaders } from "../_ratelimit";
@@ -18,6 +19,7 @@ interface Result {
 const cache = new Map<string, { ts: number; data: Result[] }>();
 const TTL = 120_000;
 const RESULTS_LIMIT = 8;
+const NEWS_MODE = process.env.NEWS_MODE === "1";
 
 function jitter(id: string, seed: number): number {
   let h = seed;
@@ -81,8 +83,31 @@ export async function POST(req: Request) {
     });
   }
 
+  const body = await req.json().catch(() => ({}));
+  const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+
+  if (NEWS_MODE && prompt.length === 0) {
+    const events = await getCurrentEvents();
+    const results: Result[] = events.map((e) => ({
+      videoId: e.id,
+      title: e.title,
+      channelTitle: e.byline,
+      thumbnailUrl: e.image ?? `https://i.ytimg.com/vi/${e.id}/hqdefault.jpg`,
+      youtubeUrl: e.url,
+      publishedAt: e.publishedAt,
+      durationSeconds: 0,
+      viewCount: 0,
+    }));
+    return new Response(JSON.stringify({ results, degraded: false }), {
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+        ...rateHeaders(ip),
+      },
+    });
+  }
+
   try {
-    const body = await req.json();
     const queries: string[] = Array.isArray(body?.queries) ? body.queries : [];
     const q = queries[0];
     if (!q) throw new Error("invalid");
