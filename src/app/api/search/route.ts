@@ -1,4 +1,4 @@
-import { getCurrentEvents } from "@/lib/news/currentEvents";
+import { getCurrentMedia } from "@/lib/news/currentMedia";
 import { pseSearch } from "@/lib/pse";
 import { ytVideos } from "@/lib/yt";
 import { rateLimited, rateHeaders } from "../_ratelimit";
@@ -14,6 +14,13 @@ interface Result {
   publishedAt: string;
   durationSeconds: number;
   viewCount: number;
+  id?: string;
+  kind?: string;
+  url?: string;
+  image?: string | null;
+  byline?: string;
+  excerpt?: string;
+  score?: number;
 }
 
 const cache = new Map<string, { ts: number; data: Result[] }>();
@@ -87,12 +94,17 @@ export async function POST(req: Request) {
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
 
   if (NEWS_MODE && prompt.length === 0) {
-    const events = await getCurrentEvents();
+    const events = await getCurrentMedia();
     const results: Result[] = events.map((e) => ({
+      id: `yt:${e.id}`,
+      kind: "youtube",
       videoId: e.id,
       title: e.title,
+      byline: e.byline,
       channelTitle: e.byline,
       thumbnailUrl: e.image ?? `https://i.ytimg.com/vi/${e.id}/hqdefault.jpg`,
+      image: e.image ?? null,
+      url: e.url,
       youtubeUrl: e.url,
       publishedAt: e.publishedAt,
       durationSeconds: 0,
