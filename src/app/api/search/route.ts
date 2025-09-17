@@ -26,6 +26,7 @@ interface Result {
 const cache = new Map<string, { ts: number; data: Result[] }>();
 const TTL = 120_000;
 const RESULTS_LIMIT = 8;
+const MULTI_QUERY_LIMIT = 12;
 const FEED_MODE = process.env.FEED_MODE === "1";
 const NEWS_MODE = process.env.NEWS_MODE === "1";
 
@@ -41,6 +42,9 @@ function ingest(
   raw: any,
   infoMap: Map<string, Result>,
   excludeSet: Set<string>,
+  sourceOrder: Map<string, number>,
+  queryIndex: number,
+  desired: number,
 ) {
   if (!raw || !Array.isArray(raw.items)) return;
   for (const item of raw.items) {
@@ -77,7 +81,10 @@ function ingest(
       durationSeconds: 0,
       viewCount: 0,
     });
-    if (infoMap.size >= 20) break;
+    if (!sourceOrder.has(id)) {
+      sourceOrder.set(id, queryIndex);
+    }
+    if (infoMap.size >= desired) break;
   }
 }
 
@@ -152,9 +159,14 @@ export async function POST(req: Request) {
   }
 
   try {
-    const queries: string[] = Array.isArray(body?.queries) ? body.queries : [];
-    const q = queries[0];
-    if (!q) throw new Error("invalid");
+    const rawQueries = Array.isArray(body?.queries) ? body.queries : [];
+    const queries = rawQueries
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter((entry) => entry.length > 0);
+    if (!queries.length && prompt) {
+      queries.push(prompt);
+    }
+    if (!queries.length) throw new Error("invalid");
 
     const excludeIds: string[] = Array.isArray(body?.excludeIds)
       ? body.excludeIds.filter((s: any) => typeof s === "string")
@@ -163,9 +175,14 @@ export async function POST(req: Request) {
       typeof body?.seed === "number" ? body.seed : undefined;
     const excludeSet = new Set(excludeIds);
 
-    const key = q;
+    const key = queries.length === 1 ? queries[0] : JSON.stringify(queries);
     const now = Date.now();
-    if (!excludeIds.length && seed === undefined) {
+    const desired =
+      queries.length === 1
+        ? RESULTS_LIMIT
+        : Math.min(Math.max(RESULTS_LIMIT, MULTI_QUERY_LIMIT), 20);
+
+    if (queries.length === 1 && !excludeIds.length && seed === undefined) {
       const cached = cache.get(key);
       if (cached && now - cached.ts < TTL) {
         return new Response(
@@ -176,11 +193,18 @@ export async function POST(req: Request) {
     }
 
     const infoMap = new Map<string, Result>();
-    const first = await pseSearch(q, 10, 1);
-    ingest(first.raw, infoMap, excludeSet);
-    if (infoMap.size < RESULTS_LIMIT) {
-      const second = await pseSearch(q, 10, 11);
-      ingest(second.raw, infoMap, excludeSet);
+    const sourceOrder = new Map<string, number>();
+    for (let i = 0; i < queries.length; i++) {
+      const current = queries[i];
+      const first = await pseSearch(current, 10, 1);
+      ingest(first.raw, infoMap, excludeSet, sourceOrder, i, desired);
+      if (infoMap.size < desired) {
+        const second = await pseSearch(current, 10, 11);
+        ingest(second.raw, infoMap, excludeSet, sourceOrder, i, desired);
+      }
+      if (infoMap.size >= desired) {
+        break;
+      }
     }
 
     const ids = Array.from(infoMap.keys());
@@ -196,7 +220,8 @@ export async function POST(req: Request) {
       const ageDays = isNaN(publishedMs)
         ? 3650
         : (now - publishedMs) / 86_400_000;
-      const base = -ageDays;
+      const order = sourceOrder.get(id) ?? 0;
+      const base = -ageDays - order * 0.1;
       return { v, base };
     });
 
@@ -213,9 +238,9 @@ export async function POST(req: Request) {
     }
 
     scored.sort((a, b) => b.score - a.score);
-    const top = scored.slice(0, RESULTS_LIMIT).map((s) => s.v);
+    const top = scored.slice(0, desired).map((s) => s.v);
 
-    let degraded = false;
+    let degraded = top.length < desired;
     const shouldHydrate = process.env.ENABLE_YT_HYDRATE !== "0";
     if (shouldHydrate) {
       const stats = await ytVideos(top.map((v) => v.videoId));
@@ -235,7 +260,12 @@ export async function POST(req: Request) {
       degraded = true;
     }
 
-    if (!excludeIds.length && seed === undefined && !degraded) {
+    if (
+      queries.length === 1 &&
+      !excludeIds.length &&
+      seed === undefined &&
+      !degraded
+    ) {
       cache.set(key, { ts: now, data: top });
     }
 
