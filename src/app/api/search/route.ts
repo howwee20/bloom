@@ -26,6 +26,7 @@ interface Result {
 const cache = new Map<string, { ts: number; data: Result[] }>();
 const TTL = 120_000;
 const RESULTS_LIMIT = 8;
+const FEED_MODE = process.env.FEED_MODE === "1";
 const NEWS_MODE = process.env.NEWS_MODE === "1";
 
 function jitter(id: string, seed: number): number {
@@ -92,6 +93,37 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+
+  if (FEED_MODE && prompt.length === 0) {
+    const events = await getCurrentMedia();
+    const mapped: Result[] = events.slice(0, RESULTS_LIMIT).map((e) => ({
+      id: `yt:${e.id}`,
+      kind: "youtube",
+      videoId: e.id,
+      title: e.title,
+      byline: e.byline,
+      channelTitle: e.byline,
+      thumbnailUrl: e.image ?? `https://i.ytimg.com/vi/${e.id}/hqdefault.jpg`,
+      image: e.image ?? null,
+      url: e.url,
+      youtubeUrl: e.url,
+      publishedAt: e.publishedAt,
+      durationSeconds: 0,
+      viewCount: 0,
+    }));
+    const limited = mapped.slice(0, RESULTS_LIMIT);
+    const degraded = limited.length < RESULTS_LIMIT;
+    return new Response(
+      JSON.stringify({ results: limited, degraded }),
+      {
+        headers: {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+          ...rateHeaders(ip),
+        },
+      },
+    );
+  }
 
   if (NEWS_MODE && prompt.length === 0) {
     const events = await getCurrentMedia();
