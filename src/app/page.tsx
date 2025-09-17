@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState, useRef, useEffect, Suspense } from "react";
+import { useState, useRef, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isSaved, toggleSave } from "@/lib/library";
 import PromptBar from "@/components/PromptBar";
@@ -18,7 +18,8 @@ interface Item {
   viewCount?: number;
 }
 
-const RESULTS_LIMIT = 4;
+const FEED_MODE = process.env.NEXT_PUBLIC_FEED_MODE === "1";
+const RESULTS_LIMIT = FEED_MODE ? 8 : 4;
 const ENABLE_YT_COMMENTS =
   process.env.NEXT_PUBLIC_ENABLE_YT_COMMENTS !== "0";
 
@@ -52,64 +53,106 @@ export default function Home() {
   >({});
   const lastPromptRef = useRef("");
   const seenIdsRef = useRef<Set<string>>(new Set());
+  const feedLoadedRef = useRef(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialQ = searchParams.get("q") ?? "";
+  const initialQ = FEED_MODE ? "" : searchParams.get("q") ?? "";
 
-  async function run(q: string, { respin }: { respin: boolean }) {
-    if (!q) return;
-    setLoading(true);
-    try {
-      const intentBody: any = { prompt: q };
-      if (!respin) {
-        seenIdsRef.current = new Set();
+  const runSearch = useCallback(
+    async (q: string, { respin }: { respin: boolean }) => {
+      if (!q) return;
+      setLoading(true);
+      try {
+        const intentBody: any = { prompt: q };
+        if (!respin) {
+          seenIdsRef.current = new Set();
+        }
+
+        const intentRes = await fetch("/api/intent", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(intentBody),
+        });
+        const intentData = await intentRes.json();
+        const queries: string[] = Array.isArray(intentData?.queries)
+          ? intentData.queries
+          : [q];
+
+        const searchBody: any = { queries };
+        if (respin) {
+          searchBody.excludeIds = Array.from(seenIdsRef.current);
+          searchBody.seed = Date.now() % 1_000_000;
+        }
+
+        const searchRes = await fetch("/api/search", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(searchBody),
+        });
+        const searchData = await searchRes.json();
+        const results: Item[] = Array.isArray(searchData?.results)
+          ? searchData.results
+          : [];
+        setItems(results);
+        setDegraded(
+          searchData?.degraded === true ||
+            results.some(
+              (r) => r.durationSeconds == null || r.viewCount == null
+            )
+        );
+        for (const r of results) seenIdsRef.current.add(r.videoId);
+        if (!respin) {
+          lastPromptRef.current = q;
+        }
+      } finally {
+        setLoading(false);
       }
+    },
+    [],
+  );
 
-      const intentRes = await fetch("/api/intent", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(intentBody),
-      });
-      const intentData = await intentRes.json();
-      const queries: string[] = Array.isArray(intentData?.queries)
-        ? intentData.queries
-        : [q];
-
-      const searchBody: any = { queries };
-      if (respin) {
-        searchBody.excludeIds = Array.from(seenIdsRef.current);
-        searchBody.seed = Date.now() % 1_000_000;
+  const loadFeed = useCallback(
+    async ({ respin }: { respin: boolean }) => {
+      setLoading(true);
+      try {
+        if (!respin) {
+          seenIdsRef.current = new Set();
+        }
+        const searchRes = await fetch("/api/search", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ prompt: "" }),
+        });
+        const searchData = await searchRes.json().catch(() => ({}));
+        const results: Item[] = Array.isArray((searchData as any)?.results)
+          ? (searchData as any).results
+          : [];
+        setItems(results);
+        setDegraded(
+          (searchData as any)?.degraded === true ||
+            results.some(
+              (r) => r.durationSeconds == null || r.viewCount == null
+            )
+        );
+        for (const r of results) {
+          seenIdsRef.current.add(r.videoId);
+        }
+        lastPromptRef.current = "";
+      } catch {
+        setItems([]);
+        setDegraded(true);
+      } finally {
+        setLoading(false);
       }
-
-      const searchRes = await fetch("/api/search", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(searchBody),
-      });
-      const searchData = await searchRes.json();
-      const results: Item[] = Array.isArray(searchData?.results)
-        ? searchData.results
-        : [];
-      setItems(results);
-      setDegraded(
-        searchData?.degraded === true ||
-          results.some(
-            (r) => r.durationSeconds == null || r.viewCount == null
-          )
-      );
-      for (const r of results) seenIdsRef.current.add(r.videoId);
-      if (!respin) {
-        lastPromptRef.current = q;
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
+    },
+    [],
+  );
 
   useEffect(() => {
     async function onSearch(e: any) {
       try {
         if (loading) return;
+        if (FEED_MODE) return;
         const q: string = e.detail?.q ?? "";
         const trimmed = q.trim().toLowerCase();
         if (!trimmed) return;
@@ -117,7 +160,7 @@ export default function Home() {
           router.push("/saved");
           return;
         }
-        await run(q, { respin: false });
+        await runSearch(q, { respin: false });
       } finally {
         window.dispatchEvent(new Event("bloom:done"));
       }
@@ -125,8 +168,12 @@ export default function Home() {
     async function onRespin() {
       try {
         if (loading) return;
+        if (FEED_MODE) {
+          await loadFeed({ respin: true });
+          return;
+        }
         if (!lastPromptRef.current) return;
-        await run(lastPromptRef.current, { respin: true });
+        await runSearch(lastPromptRef.current, { respin: true });
       } finally {
         window.dispatchEvent(new Event("bloom:done"));
       }
@@ -137,25 +184,33 @@ export default function Home() {
       window.removeEventListener("bloom:search", onSearch as any);
       window.removeEventListener("bloom:respin", onRespin as any);
     };
-  }, [loading, router]);
+  }, [FEED_MODE, loadFeed, loading, router, runSearch]);
 
   useEffect(() => {
-    if (initialQ) {
-      run(initialQ, { respin: false });
+    if (!FEED_MODE && initialQ) {
+      runSearch(initialQ, { respin: false });
     }
-  }, [initialQ]);
+  }, [FEED_MODE, initialQ, runSearch]);
+
+  useEffect(() => {
+    if (!FEED_MODE) return;
+    if (feedLoadedRef.current) return;
+    feedLoadedRef.current = true;
+    loadFeed({ respin: false });
+  }, [FEED_MODE, loadFeed]);
 
   useEffect(() => {
     if (!ENABLE_YT_COMMENTS) return;
-    const ids = items
+    const visible = items.slice(0, RESULTS_LIMIT);
+    const ids = visible
       .map((it) => extractYouTubeId(it.youtubeUrl))
       .filter((id): id is string => !!id);
     if (ids.length === 0) return;
     const unique = Array.from(new Set(ids));
     if (unique.length === 0) return;
     const params = new URLSearchParams();
-    params.set("ids", unique.slice(0, 12).join(","));
-    params.set("max", "10");
+    params.set("ids", unique.slice(0, RESULTS_LIMIT).join(","));
+    params.set("max", "3");
     setYtComments({});
     fetch(`/api/yt/comments?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : {}))
@@ -165,7 +220,7 @@ export default function Home() {
         }
       })
       .catch(() => {});
-  }, [items]);
+  }, [RESULTS_LIMIT, items]);
 
   return (
     <Suspense fallback={null}>
@@ -231,12 +286,13 @@ export default function Home() {
                     {ENABLE_YT_COMMENTS && ytId && comments && comments.length > 0
                       ? (
                           <div className="mt-2 space-y-1">
-                            {comments.slice(0, 10).map((c) => (
+                            {comments.slice(0, 3).map((c) => (
                               <div
                                 key={c.id}
-                                className="text-xs text-black/80 line-clamp-1"
+                                className="text-sm text-black/80 leading-snug line-clamp-2"
                               >
-                                <span className="italic">“{c.text}”</span> — {c.author}
+                                <span className="italic">“{c.text}”</span>{" "}
+                                <span className="text-black/60">— {c.author}</span>
                               </div>
                             ))}
                           </div>
@@ -249,7 +305,9 @@ export default function Home() {
           </div>
         </div>
         </main>
-        <PromptBar initialValue={initialQ} initialSubmitted={initialQ} />
+        {!FEED_MODE ? (
+          <PromptBar initialValue={initialQ} initialSubmitted={initialQ} />
+        ) : null}
       </>
     </Suspense>
   );
