@@ -410,7 +410,7 @@ export default function Home() {
                         className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow ${
                           savedNow
                             ? "bg-slate-700 text-white"
-                            : "bg-red-500 text-white hover:bg-red-600"
+                            : "bg-blue-500 text-white hover:bg-blue-600"
                         }`}
                       >
                         {savedNow ? "✓ Saved" : "Save"}
