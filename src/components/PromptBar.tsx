@@ -134,7 +134,7 @@ export default function PromptBar({
               <button
                 key={`${s}-${i}`}
                 onClick={(e) => { e.preventDefault(); setText(s); }}
-                className="pointer-events-auto px-3 py-1.5 rounded-full border text-sm bg-white hover:bg-slate-50"
+                className="pointer-events-auto px-3 py-1.5 rounded-full border border-red-200 bg-red-100 text-sm text-red-700 hover:bg-red-200"
                 title={s}
               >
                 {s}
@@ -161,7 +161,7 @@ export default function PromptBar({
               onClick={doAction}
               disabled={busy}
               aria-busy={busy ? "true" : "false"}
-              className="px-4 py-3 rounded-xl bg-red-500 text-white text-sm font-medium disabled:opacity-60"
+              className="px-4 py-3 rounded-xl bg-red-500 text-white text-sm font-medium hover:bg-red-600 disabled:opacity-60"
             >
               {buttonLabel}
             </button>
