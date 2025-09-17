@@ -46,3 +46,5 @@ NEXT_PUBLIC_ENABLE_YT_COMMENTS=1
 ```
 
 Shipyard Bridge e2e test ✅
+
+Shipyard Bridge validation test #2 ✅
