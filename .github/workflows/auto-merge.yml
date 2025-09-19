@@ -14,6 +14,11 @@ permissions:
   pull-requests: write
   checks: read
   statuses: read
+  actions: read
+
+concurrency:
+  group: automerge-${{ github.event.pull_request.number || github.event.workflow_run?.id || github.event.check_suite?.id }}
+  cancel-in-progress: false
 
 jobs:
   merge:
@@ -28,8 +33,8 @@ jobs:
             const e = context.payload;
             let pr = null, sha = null;
 
-            if (context.eventName === 'pull_request') {
-              pr  = e.pull_request.number;
+            if (context.eventName.startsWith('pull_request')) {
+              pr = e.pull_request.number;
               sha = e.pull_request.head.sha;
             } else if (context.eventName === 'workflow_run') {
               sha = e.workflow_run.head_sha;
@@ -45,7 +50,6 @@ jobs:
               pr = data[0]?.number || null;
             }
 
-            core.info(`event=${context.eventName} pr=${pr} sha=${sha}`);
             core.setOutput('pr', pr || '');
             core.setOutput('sha', sha || '');
 
@@ -68,35 +72,54 @@ jobs:
               core.setFailed("PR missing 'automerge' label.");
             }
 
-      - name: Wait until ALL checks are successful (timeout 20m)
+      - name: Wait until ALL other checks are successful
         if: steps.info.outputs.pr != ''
         uses: actions/github-script@v7
+        env:
+          SHA: ${{ steps.info.outputs.sha }}
+          RUN_ID: ${{ github.run_id }}
         with:
           script: |
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
-            const sha   = '${{ steps.info.outputs.sha }}';
+            const sha   = process.env.SHA;
+            const runId = Number(process.env.RUN_ID);
             const sleep = ms => new Promise(r => setTimeout(r, ms));
-            const deadline = Date.now() + 20*60*1000;
+            const deadline = Date.now() + 20 * 60 * 1000; // 20 min
 
-            async function allGreen() {
-              const { data: status } = await github.rest.repos.getCombinedStatusForRef({ owner, repo, ref: sha });
-              const contextsOk = status.state === 'success';
+            function okConclusion(c) {
+              return ['success','neutral','skipped'].includes(c || '');
+            }
 
-              const { data: checks } = await github.rest.checks.listForRef({ owner, repo, ref: sha });
-              const runs = checks.check_runs || [];
-              const ok = new Set(['success','neutral','skipped']);
-              const checksOk = runs.every(r => ok.has(r.conclusion || 'success'));
+            async function othersAllGreen() {
+              // 1) Legacy status contexts (often empty with modern checks)
+              const { data: status } =
+                await github.rest.repos.getCombinedStatusForRef({ owner, repo, ref: sha });
+              const contextsOk = status.state === 'success' || status.statuses.length === 0;
 
-              core.info(`contextsOk=${contextsOk} checksOk=${checksOk} runs=${runs.length}`);
-              return contextsOk && checksOk;
+              // 2) Identify this run's check_run IDs so we can ignore ourselves
+              const { data: jobs } =
+                await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: runId });
+              const selfIds = new Set(jobs.jobs.map(j => j.check_run_id).filter(Boolean));
+
+              // 3) Modern check runs, excluding our own
+              const { data: checks } =
+                await github.rest.checks.listForRef({ owner, repo, ref: sha, filter: 'latest' });
+              const others = (checks.check_runs || []).filter(r => !selfIds.has(r.id));
+
+              const allOk = others.every(r => r.status === 'completed' && okConclusion(r.conclusion));
+              return contextsOk && allOk;
             }
 
             while (Date.now() < deadline) {
-              if (await allGreen()) return;
+              if (await othersAllGreen()) {
+                core.info('All external checks are green.');
+                return;
+              }
+              core.info('Waiting for external checks…');
               await sleep(10000);
             }
-            core.setFailed('Timeout waiting for all checks to succeed.');
+            core.setFailed('Timeout waiting for checks to succeed.');
 
       - name: Merge (squash) when green
         if: steps.info.outputs.pr != ''
