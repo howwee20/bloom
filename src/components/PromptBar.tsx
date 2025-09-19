@@ -161,7 +161,7 @@ export default function PromptBar({
               onClick={doAction}
               disabled={busy}
               aria-busy={busy ? "true" : "false"}
-              className="px-4 py-3 rounded-xl bg-red-500 text-white text-sm font-medium disabled:opacity-60"
+              className="px-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm font-medium disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
             >
               {buttonLabel}
             </button>
