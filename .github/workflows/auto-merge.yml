@@ -1,48 +1,118 @@
-name: Auto-merge labeled PRs
+name: Auto-merge labeled PRs (reliable)
+
 on:
-  # Fires when your CI workflow finishes
-  workflow_run:
-    workflows: ['Shipyard CI']   # MUST match your CI workflow name EXACTLY
-    types: [completed]
-  # Also catch Vercel finishing (check suites)
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
   check_suite:
+    types: [completed]
+  workflow_run:
+    workflows: ['Shipyard CI']   # <-- match your CI workflow name exactly
     types: [completed]
 
 permissions:
   contents: write
   pull-requests: write
+  checks: read
+  statuses: read
 
 jobs:
   merge:
-    if: >
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success')
-      ||
-      (github.event_name == 'check_suite' &&
-       github.event.check_suite.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve head SHA
-        id: sha
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "sha=${{ github.event.check_suite.head_sha }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Find PR by commit SHA
-        id: find
-        uses: peter-evans/find-pull-request@v3
+      - name: Determine PR number & head SHA
+        id: info
+        uses: actions/github-script@v7
         with:
-          commit: ${{ steps.sha.outputs.sha }}
+          script: |
+            const e = context.payload;
+            let pr = null, sha = null;
 
-      - name: Auto-merge if labeled
-        if: steps.find.outputs.pull_request_number != ''
-        uses: peter-evans/auto-merge@v3
+            if (context.eventName === 'pull_request') {
+              pr = e.pull_request.number;
+              sha = e.pull_request.head.sha;
+            } else if (context.eventName === 'workflow_run') {
+              sha = e.workflow_run.head_sha;
+              // find PR by SHA
+              const { data } = await github.request('GET /repos/{owner}/{repo}/commits/{ref}/pulls', {
+                owner: context.repo.owner, repo: context.repo.repo, ref: sha, mediaType: { previews: ['groot'] }
+              });
+              pr = data[0]?.number || null;
+            } else if (context.eventName === 'check_suite') {
+              sha = e.check_suite.head_sha;
+              const { data } = await github.request('GET /repos/{owner}/{repo}/commits/{ref}/pulls', {
+                owner: context.repo.owner, repo: context.repo.repo, ref: sha, mediaType: { previews: ['groot'] }
+              });
+              pr = data[0]?.number || null;
+            }
+
+            core.setOutput('pr', pr || '');
+            core.setOutput('sha', sha || '');
+
+      - name: Abort if no PR found
+        if: steps.info.outputs.pr == ''
+        run: echo "No PR associated with this SHA; nothing to do."
+
+      - name: Ensure PR has 'automerge' label
+        id: haslabel
+        if: steps.info.outputs.pr != ''
+        uses: actions/github-script@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          pull-request-number: ${{ steps.find.outputs.pull_request_number }}
-          required-labels: automerge
-          merge-method: squash
-          commit-message: pull-request-title
+          script: |
+            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: Number(core.getInput('pr', { required: false })) || Number(process.env.PR_NUMBER)
+            });
+            const names = labels.map(l => l.name);
+            core.info('Labels: ' + names.join(', '));
+            if (!names.includes('automerge')) core.setFailed("PR missing 'automerge' label.");
+          env:
+            PR_NUMBER: ${{ steps.info.outputs.pr }}
+
+      - name: Wait until ALL checks are successful (with timeout)
+        if: steps.info.outputs.pr != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+            const sha   = '${{ steps.info.outputs.sha }}';
+
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
+            const deadline = Date.now() + 20 * 60 * 1000; // 20 min max
+
+            async function allGreen() {
+              // 1) status contexts (legacy)
+              const { data: status } = await github.rest.repos.getCombinedStatusForRef({ owner, repo, ref: sha });
+              const contextsOk = status.state === 'success';
+
+              // 2) check runs (modern)
+              const { data: checks } = await github.rest.checks.listForRef({ owner, repo, ref: sha });
+              const runs = checks.check_runs || [];
+              const allChecksOk = runs.every(r =>
+                ['success', 'neutral', 'skipped'].includes(r.conclusion || '') ||
+                (r.status === 'completed' && !['failure','cancelled','timed_out','action_required','stale','startup_failure'].includes(r.conclusion || ''))
+              );
+              return contextsOk && allChecksOk;
+            }
+
+            while (Date.now() < deadline) {
+              if (await allGreen()) {
+                core.info('All checks are green.');
+                return;
+              }
+              core.info('Checks not yet green; sleeping 10s…');
+              await sleep(10000);
+            }
+            core.setFailed('Timeout waiting for all checks to succeed.');
+
+      - name: Merge (squash) when green
+        if: steps.info.outputs.pr != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              pull_number: Number('${{ steps.info.outputs.pr }}'),
+              merge_method: 'squash'
+            });
+            core.info('Merged PR #' + '${{ steps.info.outputs.pr }}');
