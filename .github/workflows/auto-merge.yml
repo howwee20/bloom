@@ -1,7 +1,11 @@
 name: Auto-merge labeled PRs
 on:
+  # Fires when your CI workflow finishes
   workflow_run:
-    workflows: ['Shipyard CI']   # MUST match your CI workflow name exactly
+    workflows: ['Shipyard CI']   # MUST match your CI workflow name EXACTLY
+    types: [completed]
+  # Also catch Vercel finishing (check suites)
+  check_suite:
     types: [completed]
 
 permissions:
@@ -10,14 +14,28 @@ permissions:
 
 jobs:
   merge:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: >
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success')
+      ||
+      (github.event_name == 'check_suite' &&
+       github.event.check_suite.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve head SHA
+        id: sha
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.event.check_suite.head_sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Find PR by commit SHA
         id: find
         uses: peter-evans/find-pull-request@v3
         with:
-          commit: ${{ github.event.workflow_run.head_sha }}
+          commit: ${{ steps.sha.outputs.sha }}
 
       - name: Auto-merge if labeled
         if: steps.find.outputs.pull_request_number != ''
