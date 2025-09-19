@@ -1,7 +1,7 @@
 name: Auto-merge labeled PRs
 on:
   workflow_run:
-    workflows: ['Shipyard CI']
+    workflows: ['Shipyard CI']   # MUST match your CI workflow name exactly
     types: [completed]
 
 permissions:
@@ -10,13 +10,21 @@ permissions:
 
 jobs:
   merge:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.pull_requests[0]
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: peter-evans/auto-merge@v3
+      - name: Find PR by commit SHA
+        id: find
+        uses: peter-evans/find-pull-request@v3
+        with:
+          commit: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Auto-merge if labeled
+        if: steps.find.outputs.pull_request_number != ''
+        uses: peter-evans/auto-merge@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ steps.find.outputs.pull_request_number }}
+          required-labels: automerge
           merge-method: squash
           commit-message: pull-request-title
-          required-labels: automerge
-          pull-request-number: ${{ github.event.workflow_run.pull_requests[0].number }}
