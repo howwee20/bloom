@@ -8,17 +8,15 @@ import { isSaved, toggleSave } from "@/lib/library";
 import type { YTComment } from "@/lib/youtube/types";
 import { extractYouTubeId } from "@/lib/youtube/utils";
 import RedditStrip from "@/components/RedditStrip";
-interface Item {
-  videoId: string;
-  title: string;
-  channelTitle: string;
-  thumbnailUrl: string;
-  youtubeUrl: string;
-  durationSeconds?: number;
-  viewCount?: number;
-}
+import {
+  getDaily,
+  DailyNotFoundError,
+  type DailyItem,
+} from "@/lib/fetchDaily";
 
-const RESULTS_LIMIT = 8;
+type Item = DailyItem;
+
+const RESULTS_LIMIT = 12;
 const ENABLE_YT_COMMENTS =
   process.env.NEXT_PUBLIC_ENABLE_YT_COMMENTS !== "0";
 const ENABLE_REDDIT_STRIP =
@@ -90,7 +88,7 @@ function deriveTopics(items: Item[]): string[] {
   const bigrams = new Map<string, { label: string; count: number }>();
 
   for (const item of items.slice(0, RESULTS_LIMIT)) {
-    const candidates = [item.title, item.channelTitle].filter(
+    const candidates = [item.title].filter(
       (v): v is string => typeof v === "string" && v.length > 0,
     );
     for (const text of candidates) {
@@ -151,6 +149,24 @@ function deriveTopics(items: Item[]): string[] {
   return result;
 }
 
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toFriendlyDate(dateString: string): string {
+  if (!dateString) return "";
+  const parsed = new Date(dateString);
+  if (Number.isNaN(parsed.getTime())) return dateString;
+  return parsed.toLocaleDateString(undefined, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 function Spinner() {
   return (
     <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" aria-hidden="true">
@@ -200,17 +216,25 @@ function RespinButton({
 
 export default function Home() {
   const [items, setItems] = useState<Item[]>([]);
+  const [allItems, setAllItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
-  const [degraded, setDegraded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchMessage, setSearchMessage] = useState<string | null>(null);
+  const [dailyDate, setDailyDate] = useState<string>("");
+  const [previousDate, setPreviousDate] = useState<string | null>(null);
   const [ytComments, setYtComments] = useState<
     Record<string, YTComment[]>
   >({});
-  const lastPromptRef = useRef("");
-  const seenIdsRef = useRef<Set<string>>(new Set());
+  const lastQueryRef = useRef("");
+  const feedLoadedRef = useRef(false);
+  const loadingRef = useRef(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const feedLoadedRef = useRef(false);
   const initialQ = searchParams.get("q") ?? "";
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   const redditTopics = useMemo(() => {
     if (!ENABLE_REDDIT_STRIP) return [];
@@ -222,120 +246,95 @@ export default function Home() {
     return derived.slice(0, 3);
   }, [items]);
 
+  const loadDaily = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setSearchMessage(null);
+    try {
+      const daily = await getDaily();
+      setAllItems(daily.items);
+      setItems(daily.items);
+      setDailyDate(daily.date);
+      setPreviousDate(null);
+      lastQueryRef.current = "";
+      return daily.items;
+    } catch (err) {
+      setAllItems([]);
+      setItems([]);
+      setDailyDate("");
+      if (err instanceof DailyNotFoundError) {
+        setPreviousDate(err.previousDate ?? null);
+        setError("We don't have a curated list for today yet. Check back soon!");
+      } else {
+        setPreviousDate(null);
+        setError("We couldn't load today's curated picks. Please try again soon.");
+      }
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const runSearch = useCallback(
-    async (q: string, { respin }: { respin: boolean }) => {
-      if (!q) return;
+    async (q: string, options?: { source?: Item[] }) => {
+      const trimmed = q.trim();
+      if (!trimmed) return;
       setLoading(true);
       try {
-        const intentBody: any = { prompt: q };
-        if (!respin) {
-          seenIdsRef.current = new Set();
-        }
-
-        const intentRes = await fetch("/api/intent", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(intentBody),
-        });
-        const intentData = await intentRes.json();
-        const queries: string[] = Array.isArray(intentData?.queries)
-          ? intentData.queries
-          : [q];
-
-        const searchBody: any = { queries };
-        if (respin) {
-          searchBody.excludeIds = Array.from(seenIdsRef.current);
-          searchBody.seed = Date.now() % 1_000_000;
-        }
-
-        const searchRes = await fetch("/api/search", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(searchBody),
-        });
-        const searchData = await searchRes.json();
-        const results: Item[] = Array.isArray(searchData?.results)
-          ? searchData.results
-          : [];
-        setItems(results);
-        setDegraded(
-          searchData?.degraded === true ||
-            results.some(
-              (r) => r.durationSeconds == null || r.viewCount == null
-            )
+        const normalized = trimmed.toLowerCase();
+        const base = options?.source ?? allItems;
+        const matches = base.filter((item) =>
+          item.title.toLowerCase().includes(normalized),
         );
-        for (const r of results) seenIdsRef.current.add(r.videoId);
-        if (!respin) {
-          lastPromptRef.current = q;
-        }
+        setItems(matches);
+        setSearchMessage(
+          matches.length === 0
+            ? `No matches for “${trimmed}” in today's picks.`
+            : null,
+        );
+        lastQueryRef.current = trimmed;
       } finally {
         setLoading(false);
       }
     },
-    [],
+    [allItems],
   );
 
-  const loadFeed = useCallback(
-    async ({ respin }: { respin: boolean }) => {
-      setLoading(true);
-      try {
-        if (!respin) {
-          seenIdsRef.current = new Set();
-        }
-        const searchRes = await fetch("/api/search", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ prompt: "" }),
-        });
-        const searchData = await searchRes.json().catch(() => ({}));
-        const results: Item[] = Array.isArray((searchData as any)?.results)
-          ? (searchData as any).results
-          : [];
-        setItems(results);
-        setDegraded(
-          (searchData as any)?.degraded === true ||
-            results.some(
-              (r) => r.durationSeconds == null || r.viewCount == null
-            )
-        );
-        for (const r of results) {
-          seenIdsRef.current.add(r.videoId);
-        }
-        lastPromptRef.current = "";
-      } catch {
-        setItems([]);
-        setDegraded(true);
-      } finally {
-        setLoading(false);
+  useEffect(() => {
+    if (feedLoadedRef.current) return;
+    const trimmed = initialQ.trim();
+    feedLoadedRef.current = true;
+    (async () => {
+      const loaded = await loadDaily();
+      if (trimmed) {
+        await runSearch(trimmed, { source: loaded });
       }
-    },
-    [],
-  );
+    })();
+  }, [initialQ, loadDaily, runSearch]);
 
   useEffect(() => {
     async function onSearch(e: any) {
       try {
-        if (loading) return;
+        if (loadingRef.current) return;
         const q: string = e.detail?.q ?? "";
-        const trimmed = q.trim().toLowerCase();
+        const trimmed = q.trim();
         if (!trimmed) return;
-        if (trimmed === "saved") {
+        if (trimmed.toLowerCase() === "saved") {
           router.push("/saved");
           return;
         }
-        await runSearch(q, { respin: false });
+        await runSearch(trimmed);
       } finally {
         window.dispatchEvent(new Event("bloom:done"));
       }
     }
     async function onRespin() {
       try {
-        if (loading) return;
-        if (lastPromptRef.current) {
-          await runSearch(lastPromptRef.current, { respin: true });
-          return;
+        if (loadingRef.current) return;
+        const loaded = await loadDaily();
+        if (lastQueryRef.current) {
+          await runSearch(lastQueryRef.current, { source: loaded });
         }
-        await loadFeed({ respin: true });
       } finally {
         window.dispatchEvent(new Event("bloom:done"));
       }
@@ -346,37 +345,26 @@ export default function Home() {
       window.removeEventListener("bloom:search", onSearch as any);
       window.removeEventListener("bloom:respin", onRespin as any);
     };
-  }, [loadFeed, loading, router, runSearch]);
-
-  useEffect(() => {
-    if (feedLoadedRef.current) return;
-    const trimmed = initialQ.trim();
-    feedLoadedRef.current = true;
-    if (trimmed) {
-      runSearch(initialQ, { respin: false });
-      return;
-    }
-    loadFeed({ respin: false });
-  }, [initialQ, loadFeed, runSearch]);
+  }, [loadDaily, router, runSearch]);
 
   const handleRespinClick = useCallback(() => {
-    if (loading) return;
+    if (loadingRef.current) return;
     window.dispatchEvent(new CustomEvent("bloom:respin"));
-  }, [loading]);
+  }, []);
 
   useEffect(() => {
     if (!ENABLE_YT_COMMENTS) return;
     const visible = items.slice(0, RESULTS_LIMIT);
     const ids = visible
-      .map((it) => extractYouTubeId(it.youtubeUrl))
+      .map((it) => it.id || extractYouTubeId(it.url))
       .filter((id): id is string => !!id);
+    setYtComments({});
     if (ids.length === 0) return;
     const unique = Array.from(new Set(ids));
     if (unique.length === 0) return;
     const params = new URLSearchParams();
     params.set("ids", unique.slice(0, RESULTS_LIMIT).join(","));
     params.set("max", "3");
-    setYtComments({});
     fetch(`/api/yt/comments?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : {}))
       .then((map) => {
@@ -385,90 +373,128 @@ export default function Home() {
         }
       })
       .catch(() => {});
-  }, [RESULTS_LIMIT, items]);
+  }, [items]);
+
+  const todayKey = formatDateKey(new Date());
+  const fallbackActive = dailyDate ? dailyDate !== todayKey : false;
+  const friendlyDate = dailyDate ? toFriendlyDate(dailyDate) : "";
+  const showAlert = Boolean(error);
+  const showGrid = items.length > 0;
 
   return (
     <Suspense fallback={null}>
       <>
         <main className="min-h-[100svh] bg-white">
           <div className="mx-auto w-full max-w-[1400px] px-4 pt-4 pb-[88px]">
-            {degraded && (
+            {showAlert ? (
               <div className="mb-4 rounded border border-yellow-200 bg-yellow-100 p-2 text-center text-sm text-yellow-800">
-                We’re running in low‑quota mode. Playing and saving still work; some
-                stats are hidden.
+                {error}
               </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {items.slice(0, RESULTS_LIMIT).map((it) => {
-                const savedNow = isSaved(it.videoId);
-                const ytId = extractYouTubeId(it.youtubeUrl);
-                const comments = ytId ? ytComments[ytId] : undefined;
-                return (
-                  <a
-                    key={it.videoId}
-                    href={it.youtubeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="relative rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition"
-                  >
-                    <div className="aspect-video overflow-hidden relative">
-                      <img
-                        src={it.thumbnailUrl}
-                        alt={it.title}
-                        className="w-full h-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          toggleSave({
-                            videoId: it.videoId,
-                            title: it.title,
-                            channelTitle: it.channelTitle,
-                            youtubeUrl: it.youtubeUrl,
-                            thumbnailUrl: it.thumbnailUrl,
-                          });
-                          // Force a re-render so isSaved() reflects immediately
-                          setItems((cur) => [...cur]);
-                        }}
-                        aria-label={savedNow ? "Saved" : "Save to Watch Later"}
-                        className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow ${
-                          savedNow
-                            ? "bg-slate-700 text-white"
-                            : "bg-red-500 text-white hover:bg-red-600"
-                        }`}
+            ) : null}
+            {fallbackActive && !showAlert && friendlyDate ? (
+              <div className="mb-4 rounded-xl bg-orange-50 px-4 py-3 text-sm text-orange-700">
+                Today's picks aren't ready yet. Showing {friendlyDate} instead.
+              </div>
+            ) : null}
+            {!fallbackActive && friendlyDate && showGrid ? (
+              <div className="mb-4 text-sm text-black/70">
+                Today's curated list for {friendlyDate}.
+              </div>
+            ) : null}
+            {showGrid ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {items.slice(0, RESULTS_LIMIT).map((it) => {
+                  const savedNow = isSaved(it.id);
+                  const ytId = it.id || extractYouTubeId(it.url);
+                  const comments = ytId ? ytComments[ytId] : undefined;
+                  const meta: string[] = [];
+                  if (it.rank != null) meta.push(`#${it.rank}`);
+                  meta.push("YouTube");
+                  if (it.duration) meta.push(it.duration);
+                  return (
+                    <a
+                      key={it.id}
+                      href={it.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="relative rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition"
+                    >
+                      <div className="aspect-video overflow-hidden relative">
+                        <img
+                          src={it.thumb}
+                          alt={it.title}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            toggleSave({
+                              videoId: it.id,
+                              title: it.title,
+                              channelTitle: "YouTube",
+                              youtubeUrl: it.url,
+                              thumbnailUrl: it.thumb,
+                            });
+                            setItems((cur) => [...cur]);
+                          }}
+                          aria-label={savedNow ? "Saved" : "Save to Watch Later"}
+                          className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow ${
+                            savedNow
+                              ? "bg-slate-700 text-white"
+                              : "bg-red-500 text-white hover:bg-red-600"
+                          }`}
+                        >
+                          {savedNow ? "✓ Saved" : "Save"}
+                        </button>
+                      </div>
+                      <div className="p-3">
+                        <div className="text-sm font-medium leading-snug line-clamp-2">
+                          {it.title}
+                        </div>
+                        <div className="mt-1 text-xs text-black/80">
+                          {meta.join(" • ")}
+                        </div>
+                        {ENABLE_YT_COMMENTS && ytId && comments && comments.length > 0 ? (
+                          <div className="mt-2 space-y-1">
+                            {comments.slice(0, 3).map((c) => (
+                              <div
+                                key={c.id}
+                                className="text-sm text-black/80 leading-snug line-clamp-2"
+                              >
+                                <span className="italic">“{c.text}”</span>{" "}
+                                <span className="text-black/60">— {c.author}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            ) : !loading ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-black/70">
+                {error ? (
+                  <div className="space-y-3">
+                    <p>{error}</p>
+                    {previousDate ? (
+                      <a
+                        href={`/daily/${previousDate}.json`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-orange-600 hover:underline"
                       >
-                        {savedNow ? "✓ Saved" : "Save"}
-                      </button>
-                    </div>
-                    <div className="p-3">
-                      <div className="text-sm font-medium leading-snug line-clamp-2">
-                        {it.title}
-                      </div>
-                      <div className="mt-1 text-xs text-black/80">
-                        {it.channelTitle}
-                      </div>
-                      {ENABLE_YT_COMMENTS && ytId && comments && comments.length > 0
-                        ? (
-                            <div className="mt-2 space-y-1">
-                              {comments.slice(0, 3).map((c) => (
-                                <div
-                                  key={c.id}
-                                  className="text-sm text-black/80 leading-snug line-clamp-2"
-                                >
-                                  <span className="italic">“{c.text}”</span>{" "}
-                                  <span className="text-black/60">— {c.author}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )
-                        : null}
-                    </div>
-                  </a>
-                );
-              })}
-            </div>
-            {ENABLE_REDDIT_STRIP && redditTopics.length > 0 ? (
+                        View yesterday's list
+                      </a>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p>{searchMessage ?? "No videos match your search yet."}</p>
+                )}
+              </div>
+            ) : null}
+            {showGrid && ENABLE_REDDIT_STRIP && redditTopics.length > 0 ? (
               <RedditStrip topics={redditTopics} />
             ) : null}
           </div>
