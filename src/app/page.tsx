@@ -5,7 +5,6 @@ export const dynamic = "force-dynamic";
 import { useState, useRef, useEffect, Suspense, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isSaved, toggleSave } from "@/lib/library";
-import PromptBar from "@/components/PromptBar";
 import type { YTComment } from "@/lib/youtube/types";
 import { extractYouTubeId } from "@/lib/youtube/utils";
 import RedditStrip from "@/components/RedditStrip";
@@ -19,8 +18,7 @@ interface Item {
   viewCount?: number;
 }
 
-const FEED_MODE = process.env.NEXT_PUBLIC_FEED_MODE === "1";
-const RESULTS_LIMIT = FEED_MODE ? 8 : 4;
+const RESULTS_LIMIT = 8;
 const ENABLE_YT_COMMENTS =
   process.env.NEXT_PUBLIC_ENABLE_YT_COMMENTS !== "0";
 const ENABLE_REDDIT_STRIP =
@@ -174,6 +172,32 @@ function Spinner() {
   );
 }
 
+function RespinButton({
+  loading,
+  onClick,
+}: {
+  loading: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-50 pb-[env(safe-area-inset-bottom)]">
+      <div className="mx-auto w-full max-w-[1400px] px-4 py-4 bg-white/80 backdrop-blur border-t">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onClick}
+            disabled={loading}
+            aria-busy={loading ? "true" : "false"}
+            className="px-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm font-medium disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+          >
+            {loading ? "Searching…" : "Respin"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
@@ -183,10 +207,10 @@ export default function Home() {
   >({});
   const lastPromptRef = useRef("");
   const seenIdsRef = useRef<Set<string>>(new Set());
-  const feedLoadedRef = useRef(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialQ = FEED_MODE ? "" : searchParams.get("q") ?? "";
+  const feedLoadedRef = useRef(false);
+  const initialQ = searchParams.get("q") ?? "";
 
   const redditTopics = useMemo(() => {
     if (!ENABLE_REDDIT_STRIP) return [];
@@ -292,7 +316,6 @@ export default function Home() {
     async function onSearch(e: any) {
       try {
         if (loading) return;
-        if (FEED_MODE) return;
         const q: string = e.detail?.q ?? "";
         const trimmed = q.trim().toLowerCase();
         if (!trimmed) return;
@@ -308,12 +331,11 @@ export default function Home() {
     async function onRespin() {
       try {
         if (loading) return;
-        if (FEED_MODE) {
-          await loadFeed({ respin: true });
+        if (lastPromptRef.current) {
+          await runSearch(lastPromptRef.current, { respin: true });
           return;
         }
-        if (!lastPromptRef.current) return;
-        await runSearch(lastPromptRef.current, { respin: true });
+        await loadFeed({ respin: true });
       } finally {
         window.dispatchEvent(new Event("bloom:done"));
       }
@@ -324,20 +346,23 @@ export default function Home() {
       window.removeEventListener("bloom:search", onSearch as any);
       window.removeEventListener("bloom:respin", onRespin as any);
     };
-  }, [FEED_MODE, loadFeed, loading, router, runSearch]);
+  }, [loadFeed, loading, router, runSearch]);
 
   useEffect(() => {
-    if (!FEED_MODE && initialQ) {
-      runSearch(initialQ, { respin: false });
-    }
-  }, [FEED_MODE, initialQ, runSearch]);
-
-  useEffect(() => {
-    if (!FEED_MODE) return;
     if (feedLoadedRef.current) return;
+    const trimmed = initialQ.trim();
     feedLoadedRef.current = true;
+    if (trimmed) {
+      runSearch(initialQ, { respin: false });
+      return;
+    }
     loadFeed({ respin: false });
-  }, [FEED_MODE, loadFeed]);
+  }, [initialQ, loadFeed, runSearch]);
+
+  const handleRespinClick = useCallback(() => {
+    if (loading) return;
+    window.dispatchEvent(new CustomEvent("bloom:respin"));
+  }, [loading]);
 
   useEffect(() => {
     if (!ENABLE_YT_COMMENTS) return;
@@ -448,9 +473,7 @@ export default function Home() {
             ) : null}
           </div>
         </main>
-        {!FEED_MODE ? (
-          <PromptBar initialValue={initialQ} initialSubmitted={initialQ} />
-        ) : null}
+        <RespinButton loading={loading} onClick={handleRespinClick} />
       </>
     </Suspense>
   );
