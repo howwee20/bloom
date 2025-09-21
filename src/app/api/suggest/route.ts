@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 export const runtime = "edge";
 
-type Body = { input?: string; savedTitles?: string[] };
+type Body = { input?: string };
 
 const WILDCARDS = [
   "underrated interviews worth watching",
@@ -114,10 +114,10 @@ If input is non-empty, 2 of the items must clearly reflect it. Keep safe.`;
 }
 
 export async function POST(req: NextRequest) {
-  const { input = "", savedTitles = [] } = (await req.json().catch(() => ({}))) as Body;
+  const { input = "" } = (await req.json().catch(() => ({}))) as Body;
 
-  // choose one random saved title as seed (or empty)
-  const seedTitle = pickRandom(savedTitles, "");
+  // choose one random wildcard as a loose seed when none supplied
+  const seedTitle = pickRandom(WILDCARDS, "");
 
   const apiKey = process.env.OPENAI_API_KEY || "";
   const model = process.env.INTENT_MODEL || "gpt-5-mini";

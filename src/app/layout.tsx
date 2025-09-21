@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,12 +30,6 @@ export default function RootLayout({
       >
         <header className="p-4 text-xl font-semibold flex items-center justify-between bg-white">
           <a href="/" className={"text-pink-500"}>The Bloom 100</a>
-          <Link
-            href="/saved"
-            className="text-sm font-normal text-slate-600 hover:text-slate-900 underline underline-offset-4"
-          >
-            Watch Later
-          </Link>
         </header>
         {children}
       </body>

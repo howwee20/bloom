@@ -1,12 +1,11 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
-import { loadLibrary } from "@/lib/library";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type Props = {
   // Optional overrides for page-specific actions
   onSubmit?: (text: string) => void;   // run a search (home)
-  onRespin?: () => void;               // rotate deck (/saved or home)
+  onRespin?: () => void;               // rotate deck (home)
   initialValue?: string;               // prefill input (e.g., ?q=iphone)
   initialSubmitted?: string;           // tells the bar what the last run was
   placeholder?: string;
@@ -19,7 +18,6 @@ export default function PromptBar({
   initialSubmitted = "",
   placeholder = "Describe what you want to watch…",
 }: Props) {
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [text, setText] = useState(initialValue || searchParams.get("q") || "");
   const lastSubmittedRef = useRef((initialSubmitted || searchParams.get("q") || "").trim());
@@ -27,7 +25,6 @@ export default function PromptBar({
   // --- Suggestions (simple, reliable; UI only—no extra logic here) ---
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const taste = useMemo(() => loadLibrary().slice(0, 20).map(s => s.title).filter(Boolean), []);
   const [busy, setBusy] = useState(false);
 
   // GLOBAL ENTER: trigger the same action as the single button from anywhere
@@ -38,7 +35,7 @@ export default function PromptBar({
       if (busy) return;
       // Prevent default browser behavior (e.g., submitting forms)
       e.preventDefault();
-      // Run the unified action (Bloom it / Respin, or Saved rotate)
+      // Run the unified action (Bloom it / Respin)
       doAction();
     }
     window.addEventListener("keydown", onGlobalEnter, { capture: true });
@@ -53,7 +50,7 @@ export default function PromptBar({
         const r = await fetch("/api/suggest", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ input: q, savedTitles: taste }),
+          body: JSON.stringify({ input: q }),
         });
         const j = await r.json().catch(() => ({ suggestions: [] }));
         const arr = Array.isArray(j.suggestions) ? j.suggestions : [];
@@ -63,7 +60,7 @@ export default function PromptBar({
       } finally { setLoading(false); }
     }, 300);
     return () => clearTimeout(t);
-  }, [text, taste]);
+  }, [text]);
 
   // Busy reset on "done" events (from pages)
   useEffect(() => {
@@ -85,10 +82,9 @@ export default function PromptBar({
   }
 
   // --- Dynamic label & single action ---
-  const inSaved = pathname === "/saved";
   const trimmed = text.trim();
-  const isNewPrompt = !inSaved && !!trimmed && trimmed.toLowerCase() !== lastSubmittedRef.current.toLowerCase();
-  const baseLabel = inSaved ? "Respin" : (isNewPrompt ? "Bloom it" : "Respin");
+  const isNewPrompt = !!trimmed && trimmed.toLowerCase() !== lastSubmittedRef.current.toLowerCase();
+  const baseLabel = isNewPrompt ? "Bloom it" : "Respin";
   const buttonLabel = busy ? "Searching…" : baseLabel;
 
   function runSearch(value: string) {
@@ -103,10 +99,6 @@ export default function PromptBar({
   function doAction() {
     if (busy) return;
     startBusy();
-    if (inSaved) {
-      // page-level onRespin will fire and then dispatch 'bloom:done'
-      return runRespin();
-    }
     if (isNewPrompt) {
       lastSubmittedRef.current = trimmed;
       return runSearch(trimmed); // page will dispatch 'bloom:done' on completion

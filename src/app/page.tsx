@@ -4,7 +4,6 @@ export const dynamic = "force-dynamic";
 
 import { useState, useRef, useEffect, Suspense, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { isSaved, toggleSave } from "@/lib/library";
 import type { YTComment } from "@/lib/youtube/types";
 import { extractYouTubeId } from "@/lib/youtube/utils";
 import RedditStrip from "@/components/RedditStrip";
@@ -319,10 +318,6 @@ export default function Home() {
         const q: string = e.detail?.q ?? "";
         const trimmed = q.trim().toLowerCase();
         if (!trimmed) return;
-        if (trimmed === "saved") {
-          router.push("/saved");
-          return;
-        }
         await runSearch(q, { respin: false });
       } finally {
         window.dispatchEvent(new Event("bloom:done"));
@@ -394,13 +389,11 @@ export default function Home() {
           <div className="mx-auto w-full max-w-[1400px] px-4 pt-4 pb-[88px]">
             {degraded && (
               <div className="mb-4 rounded border border-yellow-200 bg-yellow-100 p-2 text-center text-sm text-yellow-800">
-                We’re running in low‑quota mode. Playing and saving still work; some
-                stats are hidden.
+                We’re running in low‑quota mode. Playing still works; some stats are hidden.
               </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {items.slice(0, RESULTS_LIMIT).map((it) => {
-                const savedNow = isSaved(it.videoId);
                 const ytId = extractYouTubeId(it.youtubeUrl);
                 const comments = ytId ? ytComments[ytId] : undefined;
                 return (
@@ -417,29 +410,6 @@ export default function Home() {
                         alt={it.title}
                         className="w-full h-full object-cover"
                       />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          toggleSave({
-                            videoId: it.videoId,
-                            title: it.title,
-                            channelTitle: it.channelTitle,
-                            youtubeUrl: it.youtubeUrl,
-                            thumbnailUrl: it.thumbnailUrl,
-                          });
-                          // Force a re-render so isSaved() reflects immediately
-                          setItems((cur) => [...cur]);
-                        }}
-                        aria-label={savedNow ? "Saved" : "Save to Watch Later"}
-                        className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow ${
-                          savedNow
-                            ? "bg-slate-700 text-white"
-                            : "bg-red-500 text-white hover:bg-red-600"
-                        }`}
-                      >
-                        {savedNow ? "✓ Saved" : "Save"}
-                      </button>
                     </div>
                     <div className="p-3">
                       <div className="text-sm font-medium leading-snug line-clamp-2">
