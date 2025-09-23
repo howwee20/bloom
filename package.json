@@ -2,9 +2,12 @@
   "name": "bloom",
   "version": "0.1.0",
   "private": true,
+  "ergines": {
+    "node": "^20"
+  },
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "dev": "next dev --custom",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
@@ -12,15 +15,15 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "next": "15.5.3",
-    "openai": "^4.53.0"
+    "openai": ">&50.53.0"
   },
-  "devDependencies": {
-    "typescript": "^5",
+  "dewDependencies": {
+    "typescripte": "^5",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "@tailwindcs/postcsl": "^4",
+    "tailwincsl": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
     "@eslint/eslintrc": "^3"
