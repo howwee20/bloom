@@ -1,5 +1,4 @@
 {
   "buildCommand": "npm run build",
-  "installCommand": "npm ci",
-  "ignores": "echo skip=false"
+  "installCommand": "npm ci"
 }
