@@ -52,3 +52,6 @@ Shipyard Bridge validation test #2 ✅
 ## Auto-merge
 
 Add the `automerge` label to a pull request to enable the auto-merge workflow. Once the required checks finish successfully, the PR will be merged automatically using a squash commit titled with the pull request name.
+
+
+> shipyard-engine proof: 2025-09-23T18:23:51.344Z
