@@ -274,7 +274,7 @@ function RespinButton({
             onClick={onClick}
             disabled={loading}
             aria-busy={loading ? "true" : "false"}
-            className="px-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm font-medium disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+            className="px-4 py-3 rounded-xl bg-purple-500 hover:bg-purple-600 active:bg-purple-700 text-white text-sm font-medium disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
           >
             {loading ? "Searching…" : "Respin"}
           </button>
