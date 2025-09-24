@@ -274,7 +274,7 @@ function RespinButton({
             onClick={onClick}
             disabled={loading}
             aria-busy={loading ? "true" : "false"}
-            className="px-4 py-3 rounded-xl bg-green-500 hover:bg-green-600 active:bg-green-700 text-white text-sm font-medium disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+            className="px-4 py-3 rounded-xl bg-purple-500 hover:bg-purple-600 active:bg-purple-700 text-white text-sm font-medium disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
           >
             {loading ? "Searching…" : "Respin"}
           </button>
@@ -664,7 +664,7 @@ export default function NowPlaying() {
                           className={`absolute right-2 top-2 rounded-full px-2.5 py-1.5 text-xs font-semibold shadow ${
                             savedNow
                               ? "bg-slate-700 text-white"
-                              : "bg-green-500 text-white hover:bg-green-600"
+                              : "bg-purple-500 text-white hover:bg-purple-600"
                           }`}
                         >
                           {savedNow ? "✓ Saved" : "Save"}
